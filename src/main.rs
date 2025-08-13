@@ -160,7 +160,11 @@ fn get_keyboard_devices() -> Vec<KeyboardDevice> {
                     devices.push(KeyboardDevice { path, name });
                 }
             }
-            Err(_) => continue, // Skip devices that cannot be opened
+            Err(error) => {
+                // Ignore devices that cannot be opened
+                eprintln!("Could not open device {}: {}", path, error);
+                continue;
+            } // Skip devices that cannot be opened
         }
     }
 
@@ -175,7 +179,7 @@ fn main() {
         return;
     }
 
-    let selected_device = devices.first().unwrap();
+    let mut selected_device = devices.first().unwrap();
 
     println!("Found {} keyboard devices:", devices.len());
     for (i, device) in devices.iter().enumerate() {
@@ -204,7 +208,7 @@ fn main() {
         selected_device.name, selected_device.path
     );
 
-    let mut keyboard_device = Device::open(selected_device.path).expect("Failed to open device");
+    let mut keyboard_device = Device::open(&selected_device.path).expect("Failed to open device");
 
     let mut pressed_keys: HashMap<KeyCode, usize> = HashMap::new();
 
