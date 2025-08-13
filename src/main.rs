@@ -132,7 +132,7 @@ fn print_keyboard(pressed_keys: &HashMap<KeyCode, usize>) {
         println!();
     }
     println!();
-    println!("Press Ctrl+C to exit.");
+    println!("Press CTRL 4 times in a row to exit.");
 }
 
 fn get_keyboard_devices() -> Vec<KeyboardDevice> {
@@ -214,7 +214,9 @@ fn main() {
 
     print_keyboard(&pressed_keys);
 
-    loop {
+    let mut ctrl_presses = 0;
+
+    while ctrl_presses < 3 {
         for event in keyboard_device
             .fetch_events()
             .expect("Failed to fetch events")
@@ -222,6 +224,11 @@ fn main() {
             match event.destructure() {
                 EventSummary::Key(_, key_code, 1) => {
                     println!("Key pressed: {:?}", key_code);
+                    if key_code == KeyCode::KEY_LEFTCTRL || key_code == KeyCode::KEY_RIGHTCTRL {
+                        ctrl_presses += 1;
+                    } else {
+                        ctrl_presses = 0; // Reset if any other key is pressed
+                    }
 
                     *pressed_keys.entry(key_code).or_insert(0) += 1;
 
