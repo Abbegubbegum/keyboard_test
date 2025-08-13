@@ -1,5 +1,6 @@
 use evdev::{Device, EventSummary, KeyCode};
 use std::collections::HashMap;
+use std::fs;
 use std::io::{self, Write};
 
 const KEYBOARD_LAYOUT: &[&[(&str, KeyCode)]] = &[
@@ -91,6 +92,11 @@ const KEYBOARD_LAYOUT: &[&[(&str, KeyCode)]] = &[
     ],
 ];
 
+struct KeyboardDevice {
+    path: String,
+    name: String,
+}
+
 fn print_keyboard(pressed_keys: &HashMap<KeyCode, usize>) {
     // ANSI color codes
     const RESET: &str = "\x1b[0m";
@@ -129,8 +135,76 @@ fn print_keyboard(pressed_keys: &HashMap<KeyCode, usize>) {
     println!("Press Ctrl+C to exit.");
 }
 
+fn get_keyboard_devices() -> Vec<KeyboardDevice> {
+    let mut devices = Vec::new();
+
+    let dir = fs::read_dir("/dev/input").expect("Failed to read /dev/input directory");
+
+    for entry in dir.filter_map(Result::ok) {
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        if !file_name.starts_with("event") {
+            continue;
+        }
+
+        let path = format!("/dev/input/{file_name}");
+
+        match Device::open(&path) {
+            Ok(device) => {
+                let name = device.name().unwrap_or("Unknown").to_string();
+
+                // A way to check if the device is a keyboard is to check if supported keys include KEY_A
+                if device
+                    .supported_keys()
+                    .map_or(false, |keys| keys.contains(KeyCode::KEY_A))
+                {
+                    devices.push(KeyboardDevice { path, name });
+                }
+            }
+            Err(_) => continue, // Skip devices that cannot be opened
+        }
+    }
+
+    return devices;
+}
+
 fn main() {
-    let mut keyboard_device = Device::open("/dev/input/event2").expect("Failed to open device");
+    let devices = get_keyboard_devices();
+
+    if devices.is_empty() {
+        eprintln!("No keyboard devices found.");
+        return;
+    }
+
+    let selected_device = devices.first().unwrap();
+
+    println!("Found {} keyboard devices:", devices.len());
+    for (i, device) in devices.iter().enumerate() {
+        println!("{}: {} ({})", i + 1, device.name, device.path);
+    }
+
+    if devices.len() > 1 {
+        println!(
+            "Select device by entering its number (1-{}):",
+            devices.len()
+        );
+        let mut input = String::new();
+        io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read input");
+        let index: usize = input.trim().parse().unwrap_or(0);
+        if index > 0 && index <= devices.len() {
+            selected_device = &devices[index - 1];
+        } else {
+            eprintln!("Invalid selection, using the first device.");
+        }
+    }
+
+    println!(
+        "Using keyboard device: {} ({})",
+        selected_device.name, selected_device.path
+    );
+
+    let mut keyboard_device = Device::open(selected_device.path).expect("Failed to open device");
 
     let mut pressed_keys: HashMap<KeyCode, usize> = HashMap::new();
 
