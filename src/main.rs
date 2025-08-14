@@ -1,7 +1,17 @@
 mod event_handler;
 
-use crossbeam_channel::unbounded;
+use color_eyre::Result;
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use evdev::KeyCode;
+use ratatui::{
+    DefaultTerminal, Frame,
+    buffer::Buffer,
+    layout::Rect,
+    style::Stylize,
+    symbols::border,
+    text::{Line, Text},
+    widgets::{Block, Paragraph, Widget},
+};
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -96,6 +106,66 @@ const KEYBOARD_LAYOUT: &[&[(&str, KeyCode)]] = &[
     ],
 ];
 
+struct App {
+    ctrl_presses: usize,
+    pressed_keys: HashMap<KeyCode, usize>,
+    event_receiver: Receiver<AppEvent>,
+    event_sender: Sender<AppEvent>,
+}
+
+impl Widget for &App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        Text::from("Hello").centered().render(area, buf);
+    }
+}
+
+impl App {
+    pub fn new() -> Self {
+        let (tx, rx) = unbounded();
+
+        App {
+            ctrl_presses: 0,
+            pressed_keys: HashMap::new(),
+            event_receiver: rx,
+            event_sender: tx,
+        }
+    }
+
+    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        event_handler::spawn_device_listeners(&self.event_sender).unwrap();
+
+        while self.ctrl_presses < 4 {
+            terminal.draw(|f| self.draw(f))?;
+
+            match self.event_receiver.recv() {
+                Ok(event) => {
+                    match event {
+                        AppEvent::Key { code, .. } => {
+                            if code == KeyCode::KEY_LEFTCTRL || code == KeyCode::KEY_RIGHTCTRL {
+                                self.ctrl_presses += 1;
+                            } else {
+                                self.ctrl_presses = 0; // Reset if any other key is pressed
+                            }
+
+                            *self.pressed_keys.entry(code).or_insert(0) += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error receiving event: {}", e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn draw(&self, frame: &mut Frame) {
+        frame.render_widget(self, frame.area());
+    }
+}
+
 fn print_keyboard(pressed_keys: &HashMap<KeyCode, usize>) {
     // ANSI color codes
     const RESET: &str = "\x1b[0m";
@@ -134,39 +204,15 @@ fn print_keyboard(pressed_keys: &HashMap<KeyCode, usize>) {
     println!("Press CTRL 4 times in a row to exit.");
 }
 
-fn main() {
-    let (event_sender, event_receiver) = unbounded();
+fn main() -> Result<()> {
+    color_eyre::install()?;
+    let mut terminal = ratatui::init();
 
-    event_handler::spawn_device_listeners(&event_sender).unwrap();
+    let mut app = App::new();
 
-    let mut pressed_keys: HashMap<KeyCode, usize> = HashMap::new();
+    let result = app.run(&mut terminal);
 
-    print_keyboard(&pressed_keys);
+    ratatui::restore();
 
-    let mut ctrl_presses = 0;
-
-    while ctrl_presses < 4 {
-        match event_receiver.recv() {
-            Ok(event) => {
-                match event {
-                    AppEvent::Key { code, .. } => {
-                        println!("Key pressed: {:?}", code);
-                        if code == KeyCode::KEY_LEFTCTRL || code == KeyCode::KEY_RIGHTCTRL {
-                            ctrl_presses += 1;
-                        } else {
-                            ctrl_presses = 0; // Reset if any other key is pressed
-                        }
-
-                        *pressed_keys.entry(code).or_insert(0) += 1;
-
-                        print_keyboard(&pressed_keys);
-                    }
-                    _ => {}
-                }
-            }
-            Err(e) => {
-                eprintln!("Error receiving event: {}", e);
-            }
-        }
-    }
+    return result;
 }

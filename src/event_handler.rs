@@ -23,10 +23,12 @@ pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> Result<(), &str> {
         return Err("no input devices found");
     }
 
+    /*
     println!("Found {} input devices:", devices.len());
     for (_, info) in &devices {
         println!("{}", info.name);
     }
+     */
 
     for (mut dev, info) in devices {
         let tx_clone = tx.clone();
