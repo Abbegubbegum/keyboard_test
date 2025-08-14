@@ -1,34 +1,64 @@
 use crossbeam_channel::{Receiver, unbounded};
 use evdev::{Device, EventSummary, KeyCode};
-use nix::poll::PollFd;
 use std::{fs, vec};
+use std::{thread, time::Duration};
 
-#[derive(Debug)]
-pub struct AppDevice {
+#[derive(Debug, Clone)]
+pub struct DeviceInfo {
     pub path: String,
     pub name: String,
 }
 
 #[derive(Debug)]
 pub enum AppEvent {
-    Key { code: KeyCode, device: AppDevice },
-    Mouse { x: i32, y: i32, device: AppDevice },
+    Key { code: KeyCode, info: DeviceInfo },
+    Mouse { x: i32, y: i32, info: DeviceInfo },
 }
 
-pub fn spawn_evdev_thread() -> Receiver<AppEvent> {
+pub fn spawn_device_listeners() -> Receiver<AppEvent> {
     let (tx, rx) = unbounded();
 
-    std::thread::spawn(move || {
-        let devices = get_devices();
+    let devices = get_devices();
 
-        let mut fds: Vec<PollFd> = devices.iter().map();
-    });
+    for (mut dev, info) in devices {
+        let tx_clone = tx.clone();
+
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100)); // Allow some stagger time
+
+            loop {
+                match dev.fetch_events() {
+                    Ok(events) => {
+                        for event in events {
+                            match event.destructure() {
+                                EventSummary::Key(_, code, 1) => {
+                                    _ = tx_clone.send(AppEvent::Key {
+                                        code,
+                                        info: info.clone(),
+                                    });
+                                }
+                                _ => {
+                                    // Handle other events if needed
+                                    // For now, we only care about key events
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error fetching events from device {}: {}", info.path, e);
+                        break; // Exit the loop on error
+                    }
+                }
+            }
+        });
+    }
 
     return rx;
 }
 
-fn get_devices() -> Vec<(AppDevice, Device)> {
-    let mut devices: Vec<(AppDevice, Device)> = vec![];
+fn get_devices() -> Vec<(Device, DeviceInfo)> {
+    let mut devices: Vec<(Device, DeviceInfo)> = vec![];
 
     let dir = fs::read_dir("/dev/input").expect("Failed to read /dev/input directory");
 
@@ -42,11 +72,11 @@ fn get_devices() -> Vec<(AppDevice, Device)> {
                 let name = device.name().unwrap_or("Unknown").to_string();
 
                 devices.push((
-                    AppDevice {
+                    device,
+                    DeviceInfo {
                         path: entry.path().to_string_lossy().to_string(),
                         name,
                     },
-                    device,
                 ))
 
                 /*

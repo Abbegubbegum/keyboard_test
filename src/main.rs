@@ -1,9 +1,10 @@
 mod event_handler;
 
-use evdev::{Device, EventSummary, KeyCode};
+use evdev::KeyCode;
 use std::collections::HashMap;
-use std::fs;
 use std::io::{self, Write};
+
+use crate::event_handler::AppEvent;
 
 const KEYBOARD_LAYOUT: &[&[(&str, KeyCode)]] = &[
     &[
@@ -94,11 +95,6 @@ const KEYBOARD_LAYOUT: &[&[(&str, KeyCode)]] = &[
     ],
 ];
 
-struct KeyboardDevice {
-    path: String,
-    name: String,
-}
-
 fn print_keyboard(pressed_keys: &HashMap<KeyCode, usize>) {
     // ANSI color codes
     const RESET: &str = "\x1b[0m";
@@ -137,45 +133,8 @@ fn print_keyboard(pressed_keys: &HashMap<KeyCode, usize>) {
     println!("Press CTRL 4 times in a row to exit.");
 }
 
-
 fn main() {
-    let devices = get_keyboard_devices();
-
-    if devices.is_empty() {
-        eprintln!("No keyboard devices found.");
-        return;
-    }
-
-    let mut selected_device = devices.first().unwrap();
-
-    println!("Found {} keyboard devices:", devices.len());
-    for (i, device) in devices.iter().enumerate() {
-        println!("{}: {} ({})", i + 1, device.name, device.path);
-    }
-
-    if devices.len() > 1 {
-        println!(
-            "Select device by entering its number (1-{}):",
-            devices.len()
-        );
-        let mut input = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input");
-        let index: usize = input.trim().parse().unwrap_or(0);
-        if index > 0 && index <= devices.len() {
-            selected_device = &devices[index - 1];
-        } else {
-            eprintln!("Invalid selection, using the first device.");
-        }
-    }
-
-    println!(
-        "Using keyboard device: {} ({})",
-        selected_device.name, selected_device.path
-    );
-
-    let mut keyboard_device = Device::open(&selected_device.path).expect("Failed to open device");
+    let event_listener = event_handler::spawn_device_listeners();
 
     let mut pressed_keys: HashMap<KeyCode, usize> = HashMap::new();
 
@@ -184,25 +143,20 @@ fn main() {
     let mut ctrl_presses = 0;
 
     while ctrl_presses < 3 {
-        for event in keyboard_device
-            .fetch_events()
-            .expect("Failed to fetch events")
-        {
-            match event.destructure() {
-                EventSummary::Key(_, key_code, 1) => {
-                    println!("Key pressed: {:?}", key_code);
-                    if key_code == KeyCode::KEY_LEFTCTRL || key_code == KeyCode::KEY_RIGHTCTRL {
-                        ctrl_presses += 1;
-                    } else {
-                        ctrl_presses = 0; // Reset if any other key is pressed
-                    }
-
-                    *pressed_keys.entry(key_code).or_insert(0) += 1;
-
-                    print_keyboard(&pressed_keys);
+        match event_listener.recv().unwrap() {
+            AppEvent::Key { code, .. } => {
+                println!("Key pressed: {:?}", code);
+                if code == KeyCode::KEY_LEFTCTRL || code == KeyCode::KEY_RIGHTCTRL {
+                    ctrl_presses += 1;
+                } else {
+                    ctrl_presses = 0; // Reset if any other key is pressed
                 }
-                _ => {}
+
+                *pressed_keys.entry(code).or_insert(0) += 1;
+
+                print_keyboard(&pressed_keys);
             }
+            _ => {}
         }
     }
 }
