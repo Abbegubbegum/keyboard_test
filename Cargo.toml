@@ -4,4 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+crossbeam-channel = "0.5.15"
+crossterm = "0.29.0"
 evdev = "0.13.1"
+nix = "0.30.1"
+ratatui = "0.29.0"

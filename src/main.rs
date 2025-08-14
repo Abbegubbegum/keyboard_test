@@ -1,3 +1,5 @@
+mod event_handler;
+
 use evdev::{Device, EventSummary, KeyCode};
 use std::collections::HashMap;
 use std::fs;
@@ -135,41 +137,6 @@ fn print_keyboard(pressed_keys: &HashMap<KeyCode, usize>) {
     println!("Press CTRL 4 times in a row to exit.");
 }
 
-fn get_keyboard_devices() -> Vec<KeyboardDevice> {
-    let mut devices = Vec::new();
-
-    let dir = fs::read_dir("/dev/input").expect("Failed to read /dev/input directory");
-
-    for entry in dir.filter_map(Result::ok) {
-        let file_name = entry.file_name().to_string_lossy().into_owned();
-        if !file_name.starts_with("event") {
-            continue;
-        }
-
-        let path = format!("/dev/input/{file_name}");
-
-        match Device::open(&path) {
-            Ok(device) => {
-                let name = device.name().unwrap_or("Unknown").to_string();
-
-                // A way to check if the device is a keyboard is to check if supported keys include KEY_A
-                if device
-                    .supported_keys()
-                    .map_or(false, |keys| keys.contains(KeyCode::KEY_A))
-                {
-                    devices.push(KeyboardDevice { path, name });
-                }
-            }
-            Err(error) => {
-                // Ignore devices that cannot be opened
-                eprintln!("Could not open device {}: {}", path, error);
-                continue;
-            } // Skip devices that cannot be opened
-        }
-    }
-
-    return devices;
-}
 
 fn main() {
     let devices = get_keyboard_devices();
