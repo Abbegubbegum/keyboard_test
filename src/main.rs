@@ -1,10 +1,11 @@
 mod event_handler;
 
+use crossbeam_channel::unbounded;
 use evdev::KeyCode;
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-use crate::event_handler::AppEvent;
+use crate::event_handler::{AppEvent, DeviceInfo};
 
 const KEYBOARD_LAYOUT: &[&[(&str, KeyCode)]] = &[
     &[
@@ -134,7 +135,9 @@ fn print_keyboard(pressed_keys: &HashMap<KeyCode, usize>) {
 }
 
 fn main() {
-    let event_listener = event_handler::spawn_device_listeners();
+    let (event_sender, event_receiver) = unbounded();
+
+    event_handler::spawn_device_listeners(&event_sender).unwrap();
 
     let mut pressed_keys: HashMap<KeyCode, usize> = HashMap::new();
 
@@ -142,21 +145,28 @@ fn main() {
 
     let mut ctrl_presses = 0;
 
-    while ctrl_presses < 3 {
-        match event_listener.recv().unwrap() {
-            AppEvent::Key { code, .. } => {
-                println!("Key pressed: {:?}", code);
-                if code == KeyCode::KEY_LEFTCTRL || code == KeyCode::KEY_RIGHTCTRL {
-                    ctrl_presses += 1;
-                } else {
-                    ctrl_presses = 0; // Reset if any other key is pressed
+    while ctrl_presses < 4 {
+        match event_receiver.recv() {
+            Ok(event) => {
+                match event {
+                    AppEvent::Key { code, .. } => {
+                        println!("Key pressed: {:?}", code);
+                        if code == KeyCode::KEY_LEFTCTRL || code == KeyCode::KEY_RIGHTCTRL {
+                            ctrl_presses += 1;
+                        } else {
+                            ctrl_presses = 0; // Reset if any other key is pressed
+                        }
+
+                        *pressed_keys.entry(code).or_insert(0) += 1;
+
+                        print_keyboard(&pressed_keys);
+                    }
+                    _ => {}
                 }
-
-                *pressed_keys.entry(code).or_insert(0) += 1;
-
-                print_keyboard(&pressed_keys);
             }
-            _ => {}
+            Err(e) => {
+                eprintln!("Error receiving event: {}", e);
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-use crossbeam_channel::{Receiver, unbounded};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use evdev::{Device, EventSummary, KeyCode};
 use std::{fs, vec};
 use std::{thread, time::Duration};
@@ -15,10 +15,18 @@ pub enum AppEvent {
     Mouse { x: i32, y: i32, info: DeviceInfo },
 }
 
-pub fn spawn_device_listeners() -> Receiver<AppEvent> {
-    let (tx, rx) = unbounded();
-
+pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> Result<(), &str> {
     let devices = get_devices();
+
+    if devices.is_empty() {
+        eprintln!("No input devices found.");
+        return Err("no input devices found");
+    }
+
+    println!("Found {} input devices:", devices.len());
+    for (_, info) in &devices {
+        println!("{}", info.name);
+    }
 
     for (mut dev, info) in devices {
         let tx_clone = tx.clone();
@@ -46,7 +54,7 @@ pub fn spawn_device_listeners() -> Receiver<AppEvent> {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Error fetching events from device {}: {}", info.path, e);
+                        eprintln!("Error fetching events from device {}: {}", info.name, e);
                         break; // Exit the loop on error
                     }
                 }
@@ -54,7 +62,7 @@ pub fn spawn_device_listeners() -> Receiver<AppEvent> {
         });
     }
 
-    return rx;
+    Ok(())
 }
 
 fn get_devices() -> Vec<(Device, DeviceInfo)> {
