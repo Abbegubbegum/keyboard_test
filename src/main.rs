@@ -6,7 +6,7 @@ use evdev::KeyCode;
 use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
     style::Stylize,
     symbols::border,
     text::{Line, Text},
@@ -113,12 +113,6 @@ struct App {
     event_sender: Sender<AppEvent>,
 }
 
-impl Widget for &App {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        Text::from("Hello").centered().render(area, buf);
-    }
-}
-
 impl App {
     pub fn new() -> Self {
         let (tx, rx) = unbounded();
@@ -137,32 +131,41 @@ impl App {
         while self.ctrl_presses < 4 {
             terminal.draw(|f| self.draw(f))?;
 
-            match self.event_receiver.recv() {
-                Ok(event) => {
-                    match event {
-                        AppEvent::Key { code, .. } => {
-                            if code == KeyCode::KEY_LEFTCTRL || code == KeyCode::KEY_RIGHTCTRL {
-                                self.ctrl_presses += 1;
-                            } else {
-                                self.ctrl_presses = 0; // Reset if any other key is pressed
-                            }
-
-                            *self.pressed_keys.entry(code).or_insert(0) += 1;
-                        }
-                        _ => {}
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error receiving event: {}", e);
-                }
-            }
+            self.fetch_next_event();
         }
 
         Ok(())
     }
 
     fn draw(&self, frame: &mut Frame) {
-        frame.render_widget(self, frame.area());
+        let chunks = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(1),
+        ])
+        .split(frame.area());
+    }
+
+    fn fetch_next_event(&mut self) {
+        match self.event_receiver.recv() {
+            Ok(event) => {
+                match event {
+                    AppEvent::Key { code, .. } => {
+                        if code == KeyCode::KEY_LEFTCTRL || code == KeyCode::KEY_RIGHTCTRL {
+                            self.ctrl_presses += 1;
+                        } else {
+                            self.ctrl_presses = 0; // Reset if any other key is pressed
+                        }
+
+                        *self.pressed_keys.entry(code).or_insert(0) += 1;
+                    }
+                    _ => {}
+                }
+            }
+            Err(e) => {
+                eprintln!("Error receiving event: {}", e);
+            }
+        }
     }
 }
 
