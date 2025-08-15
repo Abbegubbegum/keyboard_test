@@ -6,14 +6,14 @@ use evdev::KeyCode;
 use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
-    layout::{Constraint, Layout, Rect},
-    style::Stylize,
+    layout::{Constraint, Flex, Layout, Rect},
+    style::{Color, Style, Stylize},
     symbols::border,
-    text::{Line, Text},
-    widgets::{Block, Paragraph, Widget},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Paragraph, Widget},
 };
-use std::collections::HashMap;
 use std::io::{self, Write};
+use std::{collections::HashMap, fmt::format};
 
 use crate::event_handler::{AppEvent, DeviceInfo};
 
@@ -109,8 +109,11 @@ const KEYBOARD_LAYOUT: &[&[(&str, KeyCode)]] = &[
 struct App {
     ctrl_presses: usize,
     pressed_keys: HashMap<KeyCode, usize>,
+
     event_receiver: Receiver<AppEvent>,
     event_sender: Sender<AppEvent>,
+
+    last_key_press: Option<AppEvent>,
 }
 
 impl App {
@@ -122,6 +125,7 @@ impl App {
             pressed_keys: HashMap::new(),
             event_receiver: rx,
             event_sender: tx,
+            last_key_press: None,
         }
     }
 
@@ -144,6 +148,107 @@ impl App {
             Constraint::Length(1),
         ])
         .split(frame.area());
+
+        self.draw_header(frame, chunks[0]);
+
+        self.draw_keyboard(frame, chunks[1]);
+
+        self.draw_footer(frame, chunks[2]);
+    }
+
+    fn draw_header(&self, frame: &mut Frame, area: Rect) {
+        let last_pressed = match &self.last_key_press {
+            Some(AppEvent::Key { code, info }) => {
+                format!("Last pressed: {:?} from {}", code, info.name)
+            }
+            _ => "Last pressed: (none)".to_string(),
+        };
+
+        let title = Line::from(vec![
+            "Keyboard Test".bold(),
+            " | ".into(),
+            last_pressed.gray(),
+        ]);
+
+        let p = Paragraph::new(title).block(Block::bordered());
+
+        frame.render_widget(p, area);
+    }
+
+    fn draw_keyboard(&self, frame: &mut Frame, area: Rect) {
+        let key_height = 5;
+        let horizontal_padding = 1;
+        let vertical_padding = 1;
+
+        let mut row_constraints = Vec::with_capacity(KEYBOARD_LAYOUT.len() * 2);
+
+        for i in 0..KEYBOARD_LAYOUT.len() {
+            row_constraints.push(Constraint::Length(key_height));
+            if i != KEYBOARD_LAYOUT.len() - 1 {
+                row_constraints.push(Constraint::Length(vertical_padding));
+            }
+        }
+
+        let vchunks = Layout::vertical(row_constraints).split(area);
+
+        for (i, row) in KEYBOARD_LAYOUT.iter().enumerate() {
+            let row_area = vchunks[i * 2];
+
+            let cols = row.len() as u32;
+
+            let h_constraints: Vec<Constraint> =
+                (0..cols).map(|_| Constraint::Ratio(1, cols + 2)).collect();
+
+            let hchunks = Layout::horizontal(h_constraints)
+                .flex(Flex::SpaceBetween)
+                .split(row_area);
+
+            for (i, (label, keycode)) in row.iter().enumerate() {
+                let key_rect = hchunks[i];
+
+                let press_count = self.pressed_keys.get(keycode).unwrap_or(&0);
+
+                let colors = vec![
+                    Color::LightGreen,
+                    Color::LightYellow,
+                    Color::LightRed,
+                    Color::LightBlue,
+                    Color::LightMagenta,
+                ];
+
+                let key_style = if *press_count == 0 {
+                    Style::default().on_dark_gray().white()
+                } else {
+                    Style::default().bg(colors[(press_count - 1) % 5]).black()
+                };
+
+                let block = Block::bordered().style(key_style);
+
+                frame.render_widget(block, key_rect);
+
+                let key_label = Line::from(*label);
+
+                let text_position = Layout::vertical([Constraint::Length(1)])
+                    .flex(Flex::Center)
+                    .split(key_rect);
+
+                let p = Paragraph::new(key_label).centered();
+
+                frame.render_widget(p, text_position[0]);
+            }
+        }
+    }
+
+    fn draw_footer(&self, frame: &mut Frame, area: Rect) {
+        let help = Line::from(vec![
+            "Press CTRL ".into(),
+            format!("{}", 4 - self.ctrl_presses).yellow().bold(),
+            " times in a row to quit".into(),
+        ])
+        .centered();
+
+        let p = Paragraph::new(help);
+        frame.render_widget(p, area);
     }
 
     fn fetch_next_event(&mut self) {
@@ -158,6 +263,8 @@ impl App {
                         }
 
                         *self.pressed_keys.entry(code).or_insert(0) += 1;
+
+                        self.last_key_press = Some(event);
                     }
                     _ => {}
                 }
