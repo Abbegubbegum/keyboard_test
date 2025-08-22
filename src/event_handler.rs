@@ -1,6 +1,6 @@
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::Sender;
 use evdev::{Device, EventSummary, KeyCode};
-use std::{fs, vec};
+use std::{fs, io, vec};
 use std::{thread, time::Duration};
 
 #[derive(Debug, Clone)]
@@ -15,12 +15,14 @@ pub enum AppEvent {
     Mouse { x: i32, y: i32, info: DeviceInfo },
 }
 
-pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> Result<(), &str> {
+pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> io::Result<()> {
     let devices = get_devices();
 
     if devices.is_empty() {
-        eprintln!("No input devices found.");
-        return Err("no input devices found");
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "No input devices found",
+        ));
     }
 
     /*
