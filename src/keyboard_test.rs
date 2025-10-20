@@ -218,7 +218,7 @@ impl KeyboardTestScreen {
         };
 
         let title = Line::from(vec![
-            "Keyboard Test".bold(),
+            "Keyboard Test".bold().cyan(),
             " | ".into(),
             last_pressed.gray(),
         ]);
@@ -274,9 +274,7 @@ impl KeyboardTestScreen {
                     h_constraints.push(Constraint::Length(column_spacing));
                 }
             }
-            let hchunks = Layout::horizontal(h_constraints)
-                .flex(Flex::SpaceBetween)
-                .split(row_area);
+            let hchunks = Layout::horizontal(h_constraints).split(row_area);
 
             for (i, (label, keycode)) in row.iter().enumerate() {
                 let key_rect = hchunks[i * 2];
@@ -303,9 +301,12 @@ impl KeyboardTestScreen {
 
         let key_label = Line::from(label);
 
-        let text_position = Layout::vertical([Constraint::Length(1)])
-            .flex(Flex::Center)
-            .split(area)[0];
+        let text_position = Rect {
+            x: area.x + (area.width.saturating_sub(label.len() as u16)) / 2,
+            y: area.y + (area.height / 2),
+            width: label.len() as u16,
+            height: 1,
+        };
 
         let p = Paragraph::new(key_label).centered();
 

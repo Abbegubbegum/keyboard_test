@@ -1,7 +1,14 @@
+use color_eyre::Result;
+use color_eyre::eyre::eyre;
 use crossbeam_channel::Sender;
 use evdev::{Device, EventSummary, KeyCode};
-use std::{fs, io, vec};
+use std::{fs, vec};
 use std::{thread, time::Duration};
+
+use crate::{
+    machine_detect::{ComputerModel, get_computer_model},
+    serial_touch,
+};
 
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
@@ -13,15 +20,15 @@ pub struct DeviceInfo {
 pub enum AppEvent {
     Key { code: KeyCode, info: DeviceInfo },
     Mouse { x: i32, y: i32, info: DeviceInfo },
+    Touch { x: u16, y: u16, timestamp: u128 },
 }
 
-pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> io::Result<()> {
+pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> Result<()> {
     let devices = get_devices();
 
     if devices.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "No input devices found",
+        return Err(eyre!(
+            "no input devices found, ensure you have the necessary permissions"
         ));
     }
 
@@ -66,6 +73,10 @@ pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> io::Result<()> {
         });
     }
 
+    let tx_clone = tx.clone();
+
+    let _ = serial_touch::spawn_reader(tx_clone);
+
     Ok(())
 }
 
@@ -90,16 +101,6 @@ fn get_devices() -> Vec<(Device, DeviceInfo)> {
                         name,
                     },
                 ))
-
-                /*
-                // A way to check if the device is a keyboard is to check if supported keys include KEY_A
-                if device
-                    .supported_keys()
-                    .map_or(false, |keys| keys.contains(KeyCode::KEY_A))
-                {
-                    devices.push(KeyboardDevice { path, name });
-                }
-                 */
             }
             Err(error) => {
                 // Ignore devices that cannot be opened

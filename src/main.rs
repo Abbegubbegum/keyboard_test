@@ -1,6 +1,8 @@
 mod event_handler;
-
 mod keyboard_test;
+mod machine_detect;
+mod serial_touch;
+mod touchscreen_test;
 
 use color_eyre::Result;
 use crossbeam_channel::unbounded;
@@ -15,14 +17,15 @@ use ratatui::{
 };
 
 use crate::{
-    event_handler::{AppEvent, spawn_device_listeners},
-    keyboard_test::KeyboardTestScreen,
+    event_handler::AppEvent, keyboard_test::KeyboardTestScreen,
+    touchscreen_test::TouchscreenTestScreen,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScreenId {
     Home,
     KeyboardTest,
+    TouchscreenTest,
     Exit,
 }
 
@@ -42,6 +45,7 @@ pub enum Nav {
 
 const MENU: &[(&str, ScreenId)] = &[
     ("Keyboard Test", ScreenId::KeyboardTest),
+    ("Touchscreen Test", ScreenId::TouchscreenTest),
     ("Exit", ScreenId::Exit),
 ];
 
@@ -115,10 +119,10 @@ impl Screen for HomeScreen {
     fn handle_event(&mut self, event: AppEvent) -> Nav {
         match event {
             AppEvent::Key { code, .. } => match code {
-                KeyCode::KEY_UP => {
+                KeyCode::KEY_DOWN => {
                     self.selected = (self.selected + 1) % MENU.len();
                 }
-                KeyCode::KEY_DOWN => {
+                KeyCode::KEY_UP => {
                     self.selected = (self.selected + MENU.len() - 1) % MENU.len();
                 }
                 KeyCode::KEY_ENTER => {
@@ -127,6 +131,7 @@ impl Screen for HomeScreen {
                 KeyCode::KEY_ESC => return Nav::To(ScreenId::Exit),
                 KeyCode::KEY_1 => return Nav::To(MENU[0].1),
                 KeyCode::KEY_2 => return Nav::To(MENU[1].1),
+                KeyCode::KEY_3 => return Nav::To(MENU[2].1),
                 _ => {}
             },
             _ => {}
@@ -152,9 +157,9 @@ fn run(terminal: &mut DefaultTerminal) -> Result<()> {
 
     let (tx, rx) = unbounded();
 
-    let mut exit = false;
+    event_handler::spawn_device_listeners(&tx)?;
 
-    spawn_device_listeners(&tx)?;
+    let mut exit = false;
 
     while !exit {
         terminal.draw(|f| active_screen.draw(f))?;
@@ -169,6 +174,7 @@ fn run(terminal: &mut DefaultTerminal) -> Result<()> {
                 exit = true;
             }
             Nav::To(screen_id) => {
+                terminal.draw(|f| draw_loading(f))?;
                 active_screen = create_screen(screen_id);
             }
         }
@@ -177,10 +183,36 @@ fn run(terminal: &mut DefaultTerminal) -> Result<()> {
     Ok(())
 }
 
+fn draw_loading(frame: &mut Frame) {
+    let v_chunks = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(3),
+        Constraint::Min(0),
+    ])
+    .split(frame.area());
+
+    let h_chunks = Layout::horizontal([
+        Constraint::Min(0),
+        Constraint::Length(20),
+        Constraint::Min(0),
+    ])
+    .split(v_chunks[1]);
+
+    let area = h_chunks[1];
+
+    frame.render_widget(
+        Paragraph::new("Loading...")
+            .centered()
+            .block(Block::bordered()),
+        area,
+    );
+}
+
 fn create_screen(screen_id: ScreenId) -> Box<dyn Screen> {
     match screen_id {
         ScreenId::Home => Box::new(HomeScreen::default()),
         ScreenId::KeyboardTest => Box::new(KeyboardTestScreen::default()),
+        ScreenId::TouchscreenTest => Box::new(TouchscreenTestScreen::new()),
         ScreenId::Exit => {
             eprintln!("Cannot create Exit screen");
             Box::new(HomeScreen::default())
