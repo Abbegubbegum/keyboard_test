@@ -10,6 +10,13 @@ pub enum ComputerModel {
     EjKänd,
 }
 
+pub fn has_touchscreen(c: ComputerModel) -> bool {
+    match c {
+        ComputerModel::DatorBärbarFält => true,
+        ComputerModel::EjKänd => false,
+    }
+}
+
 fn read_trim<P: AsRef<Path>>(p: P) -> Option<String> {
     fs::read_to_string(p).ok().map(|s| s.trim().to_string())
 }

@@ -14,6 +14,8 @@ struct Decoder {
     y_hi: u8,
     y_lo: u8,
     x_hi: u8,
+
+    is_touching: bool,
 }
 
 impl Decoder {
@@ -23,6 +25,7 @@ impl Decoder {
             y_hi: 0,
             y_lo: 0,
             x_hi: 0,
+            is_touching: false,
         }
     }
 
@@ -30,6 +33,9 @@ impl Decoder {
         match self.state {
             0 => {
                 if byte == 0xFF {
+                    self.state = 1;
+                } else if byte == 0xBF {
+                    self.is_touching = !self.is_touching;
                     self.state = 1;
                 }
             }
@@ -54,7 +60,12 @@ impl Decoder {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_millis();
-                return Some(AppEvent::Touch { x, y, timestamp });
+                return Some(AppEvent::Touch {
+                    x,
+                    y,
+                    timestamp,
+                    released: !self.is_touching,
+                });
             }
             _ => {
                 self.state = 0; // Reset on unexpected state

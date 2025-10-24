@@ -17,7 +17,9 @@ use ratatui::{
 };
 
 use crate::{
-    event_handler::AppEvent, keyboard_test::KeyboardTestScreen,
+    event_handler::AppEvent,
+    keyboard_test::KeyboardTestScreen,
+    machine_detect::{ComputerModel, get_computer_model, has_touchscreen},
     touchscreen_test::TouchscreenTestScreen,
 };
 
@@ -43,15 +45,23 @@ pub enum Nav {
     To(ScreenId),
 }
 
-const MENU: &[(&str, ScreenId)] = &[
-    ("Keyboard Test", ScreenId::KeyboardTest),
-    ("Touchscreen Test", ScreenId::TouchscreenTest),
-    ("Exit", ScreenId::Exit),
-];
-
-#[derive(Default)]
 struct HomeScreen {
     selected: usize,
+    menu: Vec<(&'static str, ScreenId)>,
+}
+
+impl HomeScreen {
+    fn new() -> Self {
+        let mut menu = Vec::new();
+        menu.push(("Keyboard Test", ScreenId::KeyboardTest));
+
+        if has_touchscreen(get_computer_model()) {
+            menu.push(("Touchscreen Test", ScreenId::TouchscreenTest));
+        }
+
+        menu.push(("Exit", ScreenId::Exit));
+        HomeScreen { selected: 0, menu }
+    }
 }
 
 impl Screen for HomeScreen {
@@ -82,7 +92,7 @@ impl Screen for HomeScreen {
 
         frame.render_widget(block, area);
 
-        let vertical_center = Layout::vertical([Constraint::Length(MENU.len() as u16 * 3)])
+        let vertical_center = Layout::vertical([Constraint::Length(self.menu.len() as u16 * 3)])
             .flex(Flex::Center)
             .split(area)[0];
 
@@ -90,7 +100,8 @@ impl Screen for HomeScreen {
             .flex(Flex::Center)
             .split(vertical_center)[0];
 
-        let menu_items: Vec<ListItem> = MENU
+        let menu_items: Vec<ListItem> = self
+            .menu
             .iter()
             .enumerate()
             .map(|(i, (label, _))| {
@@ -120,18 +131,23 @@ impl Screen for HomeScreen {
         match event {
             AppEvent::Key { code, .. } => match code {
                 KeyCode::KEY_DOWN => {
-                    self.selected = (self.selected + 1) % MENU.len();
+                    self.selected = (self.selected + 1) % self.menu.len();
                 }
                 KeyCode::KEY_UP => {
-                    self.selected = (self.selected + MENU.len() - 1) % MENU.len();
+                    self.selected = (self.selected + self.menu.len() - 1) % self.menu.len();
                 }
                 KeyCode::KEY_ENTER => {
-                    return Nav::To(MENU[self.selected].1);
+                    return Nav::To(self.menu[self.selected].1);
                 }
                 KeyCode::KEY_ESC => return Nav::To(ScreenId::Exit),
-                KeyCode::KEY_1 => return Nav::To(MENU[0].1),
-                KeyCode::KEY_2 => return Nav::To(MENU[1].1),
-                KeyCode::KEY_3 => return Nav::To(MENU[2].1),
+                KeyCode::KEY_Q => return Nav::To(ScreenId::Exit),
+                KeyCode::KEY_1 => return Nav::To(self.menu[0].1),
+                KeyCode::KEY_2 => return Nav::To(self.menu[1].1),
+                KeyCode::KEY_3 => {
+                    if self.menu.len() > 2 {
+                        return Nav::To(self.menu[2].1);
+                    }
+                }
                 _ => {}
             },
             _ => {}
@@ -143,6 +159,7 @@ impl Screen for HomeScreen {
 
 fn main() -> Result<()> {
     color_eyre::install()?;
+
     let mut terminal = ratatui::init();
 
     let result = run(&mut terminal);
@@ -153,7 +170,7 @@ fn main() -> Result<()> {
 }
 
 fn run(terminal: &mut DefaultTerminal) -> Result<()> {
-    let mut active_screen: Box<dyn Screen> = Box::new(HomeScreen::default());
+    let mut active_screen: Box<dyn Screen> = Box::new(HomeScreen::new());
 
     let (tx, rx) = unbounded();
 
@@ -210,12 +227,12 @@ fn draw_loading(frame: &mut Frame) {
 
 fn create_screen(screen_id: ScreenId) -> Box<dyn Screen> {
     match screen_id {
-        ScreenId::Home => Box::new(HomeScreen::default()),
+        ScreenId::Home => Box::new(HomeScreen::new()),
         ScreenId::KeyboardTest => Box::new(KeyboardTestScreen::default()),
         ScreenId::TouchscreenTest => Box::new(TouchscreenTestScreen::new()),
         ScreenId::Exit => {
             eprintln!("Cannot create Exit screen");
-            Box::new(HomeScreen::default())
+            Box::new(HomeScreen::new())
         }
     }
 }

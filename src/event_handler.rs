@@ -5,10 +5,7 @@ use evdev::{Device, EventSummary, KeyCode};
 use std::{fs, vec};
 use std::{thread, time::Duration};
 
-use crate::{
-    machine_detect::{ComputerModel, get_computer_model},
-    serial_touch,
-};
+use crate::serial_touch;
 
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
@@ -18,9 +15,21 @@ pub struct DeviceInfo {
 
 #[derive(Debug)]
 pub enum AppEvent {
-    Key { code: KeyCode, info: DeviceInfo },
-    Mouse { x: i32, y: i32, info: DeviceInfo },
-    Touch { x: u16, y: u16, timestamp: u128 },
+    Key {
+        code: KeyCode,
+        info: DeviceInfo,
+    },
+    Mouse {
+        x: i16,
+        y: i16,
+        info: DeviceInfo,
+    },
+    Touch {
+        x: u16,
+        y: u16,
+        timestamp: u128,
+        released: bool,
+    },
 }
 
 pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> Result<()> {
@@ -56,9 +65,29 @@ pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> Result<()> {
                                         info: info.clone(),
                                     });
                                 }
+                                // Handle mouse movement events
+                                EventSummary::RelativeAxis(_, rel_code, value) => {
+                                    if rel_code == evdev::RelativeAxisCode::REL_X {
+                                        // X movement
+                                        _ = tx_clone.send(AppEvent::Mouse {
+                                            x: value as i16,
+                                            y: 0,
+                                            info: info.clone(),
+                                        });
+                                    } else if rel_code == evdev::RelativeAxisCode::REL_Y {
+                                        // Y movement
+                                        _ = tx_clone.send(AppEvent::Mouse {
+                                            x: 0,
+                                            y: value as i16,
+                                            info: info.clone(),
+                                        });
+                                    }
+                                }
                                 _ => {
-                                    // Handle other events if needed
-                                    // For now, we only care about key events
+                                    // println!(
+                                    //     "Unhandled event from device {}: {:?}",
+                                    //     info.name, event
+                                    // );
                                     continue;
                                 }
                             }
