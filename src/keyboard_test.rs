@@ -8,7 +8,11 @@ use ratatui::{
 };
 use std::collections::HashMap;
 
-use crate::{Nav, Screen, ScreenId, event_handler::AppEvent};
+use crate::{
+    Nav, Screen, ScreenId,
+    event_handler::AppEvent,
+    machine_detect::{ComputerModel, get_computer_model},
+};
 
 const COLOR_LIST: [Color; 5] = [
     Color::Green,
@@ -18,7 +22,98 @@ const COLOR_LIST: [Color; 5] = [
     Color::Magenta,
 ];
 
-const MAIN_KEYBOARD_LAYOUT: &[&[(&str, KeyCode)]] = &[
+type KeyLayout = &'static [&'static [(&'static str, KeyCode)]];
+
+type KeyboardLayout = &'static [&'static [KeyLayout]];
+
+const DATOR_BB_FÄLT_NY_LAYOUT: KeyboardLayout = &[&[&[
+    &[
+        ("F1", KeyCode::KEY_F1),
+        ("F2", KeyCode::KEY_F2),
+        ("F3", KeyCode::KEY_F3),
+        ("F4", KeyCode::KEY_F4),
+        ("F5", KeyCode::KEY_F5),
+        ("F6", KeyCode::KEY_F6),
+        ("Sleep", KeyCode::KEY_SLEEP),
+    ],
+    &[
+        ("`", KeyCode::KEY_GRAVE),
+        ("1", KeyCode::KEY_1),
+        ("2", KeyCode::KEY_2),
+        ("3", KeyCode::KEY_3),
+        ("4", KeyCode::KEY_4),
+        ("5", KeyCode::KEY_5),
+        ("6", KeyCode::KEY_6),
+        ("7", KeyCode::KEY_7),
+        ("8", KeyCode::KEY_8),
+        ("9", KeyCode::KEY_9),
+        ("0", KeyCode::KEY_0),
+        ("+", KeyCode::KEY_MINUS),
+        ("`", KeyCode::KEY_EQUAL),
+        ("Backspace", KeyCode::KEY_BACKSPACE),
+    ],
+    &[
+        ("Tab", KeyCode::KEY_TAB),
+        ("Q", KeyCode::KEY_Q),
+        ("W", KeyCode::KEY_W),
+        ("E", KeyCode::KEY_E),
+        ("R", KeyCode::KEY_R),
+        ("T", KeyCode::KEY_T),
+        ("Y", KeyCode::KEY_Y),
+        ("U", KeyCode::KEY_U),
+        ("I", KeyCode::KEY_I),
+        ("O", KeyCode::KEY_O),
+        ("P", KeyCode::KEY_P),
+        ("Å", KeyCode::KEY_LEFTBRACE),
+        ("^", KeyCode::KEY_RIGHTBRACE),
+        ("'", KeyCode::KEY_BACKSLASH),
+    ],
+    &[
+        ("CapsLock", KeyCode::KEY_CAPSLOCK),
+        ("A", KeyCode::KEY_A),
+        ("S", KeyCode::KEY_S),
+        ("D", KeyCode::KEY_D),
+        ("F", KeyCode::KEY_F),
+        ("G", KeyCode::KEY_G),
+        ("H", KeyCode::KEY_H),
+        ("J", KeyCode::KEY_J),
+        ("K", KeyCode::KEY_K),
+        ("L", KeyCode::KEY_L),
+        ("Ö", KeyCode::KEY_SEMICOLON),
+        ("Ä", KeyCode::KEY_APOSTROPHE),
+        ("Enter", KeyCode::KEY_ENTER),
+    ],
+    &[
+        ("Shift", KeyCode::KEY_LEFTSHIFT),
+        ("Z", KeyCode::KEY_Z),
+        ("X", KeyCode::KEY_X),
+        ("C", KeyCode::KEY_C),
+        ("V", KeyCode::KEY_V),
+        ("B", KeyCode::KEY_B),
+        ("N", KeyCode::KEY_N),
+        ("M", KeyCode::KEY_M),
+        (",", KeyCode::KEY_COMMA),
+        (".", KeyCode::KEY_DOT),
+        ("-", KeyCode::KEY_SLASH),
+        ("↑", KeyCode::KEY_UP),
+        ("RShift", KeyCode::KEY_RIGHTSHIFT),
+    ],
+    &[
+        ("LCtrl", KeyCode::KEY_LEFTCTRL),
+        ("LWin", KeyCode::KEY_LEFTMETA),
+        ("Alt", KeyCode::KEY_LEFTALT),
+        ("<", KeyCode::KEY_102ND),
+        ("Space", KeyCode::KEY_SPACE),
+        ("MENU", KeyCode::KEY_COMPOSE),
+        ("Del", KeyCode::KEY_DELETE),
+        ("NumLk", KeyCode::KEY_NUMLOCK),
+        ("←", KeyCode::KEY_LEFT),
+        ("↓", KeyCode::KEY_DOWN),
+        ("→", KeyCode::KEY_RIGHT),
+    ],
+]]];
+
+const DEFAULT_MAIN_KEYBOARD_LAYOUT: KeyLayout = &[
     &[
         ("ESC", KeyCode::KEY_ESC),
         ("F1", KeyCode::KEY_F1),
@@ -107,7 +202,7 @@ const MAIN_KEYBOARD_LAYOUT: &[&[(&str, KeyCode)]] = &[
     ],
 ];
 
-const SIDE_LAYOUT: &[&[(&str, KeyCode)]] = &[
+const DEFAULT_SIDE_LAYOUT: KeyLayout = &[
     &[
         ("Insert", KeyCode::KEY_INSERT),
         ("Home", KeyCode::KEY_HOME),
@@ -118,7 +213,6 @@ const SIDE_LAYOUT: &[&[(&str, KeyCode)]] = &[
         ("End", KeyCode::KEY_END),
         ("Page Down", KeyCode::KEY_PAGEDOWN),
     ],
-    &[],
     &[("↑", KeyCode::KEY_UP)],
     &[
         ("←", KeyCode::KEY_LEFT),
@@ -127,7 +221,7 @@ const SIDE_LAYOUT: &[&[(&str, KeyCode)]] = &[
     ],
 ];
 
-const NUMPAD_LAYOUT: &[&[(&str, KeyCode)]] = &[
+const DEFAULT_NUMPAD_LAYOUT: KeyLayout = &[
     &[
         ("Num Lock", KeyCode::KEY_NUMLOCK),
         ("/", KeyCode::KEY_KPSLASH),
@@ -157,11 +251,32 @@ const NUMPAD_LAYOUT: &[&[(&str, KeyCode)]] = &[
     ],
 ];
 
-#[derive(Default)]
+const DEFAULT_KEYBOARD: KeyboardLayout = &[
+    &[&DEFAULT_MAIN_KEYBOARD_LAYOUT],
+    &[&DEFAULT_SIDE_LAYOUT, &DEFAULT_NUMPAD_LAYOUT],
+];
+
 pub struct KeyboardTestScreen {
     ctrl_presses: usize,
     pressed_keys: HashMap<KeyCode, usize>,
     last_key_press: Option<AppEvent>,
+    keyboard_layout: KeyboardLayout,
+}
+
+impl KeyboardTestScreen {
+    pub fn new() -> Self {
+        let keyboard_layout = match get_computer_model() {
+            ComputerModel::DatorBBFält => DATOR_BB_FÄLT_NY_LAYOUT,
+            _ => DEFAULT_KEYBOARD,
+        };
+
+        KeyboardTestScreen {
+            ctrl_presses: 0,
+            pressed_keys: HashMap::new(),
+            last_key_press: None,
+            keyboard_layout,
+        }
+    }
 }
 
 impl Screen for KeyboardTestScreen {
@@ -230,54 +345,48 @@ impl KeyboardTestScreen {
 
     fn draw_keyboard(&self, frame: &mut Frame, area: Rect) {
         let vertical_chunks =
-            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
+            Layout::vertical(self.keyboard_layout.iter().map(|_| Constraint::Fill(1))).split(area);
 
-        let horizontal_chunks = Layout::horizontal([
-            Constraint::Percentage(30),
-            Constraint::Percentage(40),
-            Constraint::Percentage(30),
-        ])
-        .split(vertical_chunks[1]);
+        self.draw_key_grid(frame, vertical_chunks[0], self.keyboard_layout[0][0]);
 
-        self.draw_key_grid(frame, vertical_chunks[0], MAIN_KEYBOARD_LAYOUT);
-        self.draw_key_grid(frame, horizontal_chunks[0], SIDE_LAYOUT);
-        self.draw_key_grid(frame, horizontal_chunks[2], NUMPAD_LAYOUT);
+        if vertical_chunks.len() < 2 {
+            return;
+        }
+
+        let horizontal_constraints = self.keyboard_layout[1].iter().map(|_| Constraint::Min(0));
+
+        let horizontal_chunks = Layout::horizontal(horizontal_constraints)
+            .spacing(2)
+            .split(vertical_chunks[1]);
+
+        self.draw_key_grid(frame, horizontal_chunks[0], self.keyboard_layout[1][0]);
+        self.draw_key_grid(frame, horizontal_chunks[1], self.keyboard_layout[1][1]);
     }
 
     fn draw_key_grid(&self, frame: &mut Frame, area: Rect, keys: &[&[(&str, KeyCode)]]) {
         let key_height = 3;
-        let row_spacing = 1;
-        let column_spacing = 1;
+        let row_spacing = 0;
+        let column_spacing = 0;
 
-        let mut row_constraints = Vec::with_capacity(keys.len() * 2);
+        let row_constraints = keys.iter().map(|_| Constraint::Length(key_height));
 
-        for i in 0..keys.len() {
-            row_constraints.push(Constraint::Length(key_height));
-            if i != keys.len() - 1 {
-                row_constraints.push(Constraint::Length(row_spacing));
-            }
-        }
-
-        let vchunks = Layout::vertical(row_constraints).split(area);
+        let vchunks = Layout::vertical(row_constraints)
+            .spacing(row_spacing)
+            .split(area);
 
         for (i, row) in keys.iter().enumerate() {
-            let row_area = vchunks[i * 2];
+            let row_area = vchunks[i];
 
-            let cols = row.len();
+            let h_constraints = row
+                .iter()
+                .map(|(label, _)| Constraint::Min(label.len() as u16 + 2));
 
-            let mut h_constraints: Vec<Constraint> = Vec::with_capacity(cols * 2);
-
-            for i in 0..cols {
-                let (label, _) = row[i];
-                h_constraints.push(Constraint::Min(label.len() as u16 + 2));
-                if i != cols - 1 {
-                    h_constraints.push(Constraint::Length(column_spacing));
-                }
-            }
-            let hchunks = Layout::horizontal(h_constraints).split(row_area);
+            let hchunks = Layout::horizontal(h_constraints)
+                .spacing(column_spacing)
+                .split(row_area);
 
             for (i, (label, keycode)) in row.iter().enumerate() {
-                let key_rect = hchunks[i * 2];
+                let key_rect = hchunks[i];
 
                 let press_count = self.pressed_keys.get(keycode).unwrap_or(&0);
 
@@ -288,7 +397,7 @@ impl KeyboardTestScreen {
 
     fn draw_key(&self, frame: &mut Frame, area: Rect, label: &str, press_count: &usize) {
         let key_style = if *press_count == 0 {
-            Style::default().on_dark_gray().white()
+            Style::default()
         } else {
             Style::default()
                 .bg(COLOR_LIST[(press_count - 1) % 5])

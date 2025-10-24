@@ -6,13 +6,13 @@ static COMPUTER_MODEL: OnceCell<Option<ComputerModel>> = OnceCell::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComputerModel {
-    DatorBärbarFält,
+    DatorBBFält,
     EjKänd,
 }
 
 pub fn has_touchscreen(c: ComputerModel) -> bool {
     match c {
-        ComputerModel::DatorBärbarFält => true,
+        ComputerModel::DatorBBFält => true,
         ComputerModel::EjKänd => false,
     }
 }
@@ -30,9 +30,9 @@ pub fn get_computer_model() -> ComputerModel {
         match model.as_str() {
             "DR786EX" => {
                 COMPUTER_MODEL
-                    .set(Some(ComputerModel::DatorBärbarFält))
+                    .set(Some(ComputerModel::DatorBBFält))
                     .unwrap();
-                ComputerModel::DatorBärbarFält
+                ComputerModel::DatorBBFält
             }
             _ => {
                 COMPUTER_MODEL.set(Some(ComputerModel::EjKänd)).unwrap();

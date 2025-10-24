@@ -76,7 +76,7 @@ impl Decoder {
 }
 
 pub fn spawn_reader(tx: Sender<AppEvent>) -> Result<std::thread::JoinHandle<()>> {
-    if get_computer_model() != ComputerModel::DatorBärbarFält {
+    if get_computer_model() != ComputerModel::DatorBBFält {
         return Err(eyre!(
             "serial touch reader can only be spawned on DatorBärbarFält model"
         ));

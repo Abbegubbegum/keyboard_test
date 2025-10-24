@@ -228,7 +228,7 @@ fn draw_loading(frame: &mut Frame) {
 fn create_screen(screen_id: ScreenId) -> Box<dyn Screen> {
     match screen_id {
         ScreenId::Home => Box::new(HomeScreen::new()),
-        ScreenId::KeyboardTest => Box::new(KeyboardTestScreen::default()),
+        ScreenId::KeyboardTest => Box::new(KeyboardTestScreen::new()),
         ScreenId::TouchscreenTest => Box::new(TouchscreenTestScreen::new()),
         ScreenId::Exit => {
             eprintln!("Cannot create Exit screen");
