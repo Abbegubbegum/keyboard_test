@@ -533,7 +533,7 @@ impl TouchscreenTestScreen {
         .split(area);
 
         // Header
-        let header = Paragraph::new(Line::from(vec![
+        let mut header_spans = vec![
             Span::styled(
                 " Touchscreen calibration ",
                 Style::default().fg(Color::Cyan).bold(),
@@ -541,9 +541,31 @@ impl TouchscreenTestScreen {
             Span::raw(" – press "),
             Span::styled("Q", Style::default().fg(Color::Yellow).bold()),
             Span::raw(" to exit"),
-        ]))
-        .centered()
-        .block(Block::bordered().title("Touchscreen"));
+        ];
+
+        // Show touch coordinates if there's an error
+        if self.calibration.error.is_some() {
+            if let Some(AppEvent::Touch { x, y, .. }) = &self.last_touch {
+                header_spans.push(Span::raw(" | Touch: "));
+                header_spans.push(Span::styled(
+                    format!("({}, {})", x, y),
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
+        }
+
+        // Show error message
+        if let Some(err) = &self.calibration.error {
+            header_spans.push(Span::raw(" | "));
+            header_spans.push(Span::styled(
+                err.clone(),
+                Style::default().fg(Color::Red).bold(),
+            ));
+        }
+
+        let header = Paragraph::new(Line::from(header_spans))
+            .centered()
+            .block(Block::bordered().title("Touchscreen"));
         f.render_widget(header, chunks[0]);
 
         // Footer
