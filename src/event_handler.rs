@@ -78,16 +78,48 @@ fn spawn_device_listener(
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(100)); // Allow some stagger time
 
+        // USB touchscreen state tracking
+        let mut touch_x: u16 = 0;
+        let mut touch_y: u16 = 0;
+
         loop {
             match dev.fetch_events() {
                 Ok(events) => {
                     for event in events {
                         match event.destructure() {
-                            EventSummary::Key(_, code, 1) => {
-                                _ = tx.send(AppEvent::Key {
-                                    code,
-                                    info: info.clone(),
-                                });
+                            EventSummary::Key(_, code, value) => {
+                                // Handle BTN_TOUCH for USB touchscreens
+                                if code == KeyCode::BTN_TOUCH {
+                                    let timestamp = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_millis();
+
+                                    _ = tx.send(AppEvent::Touch {
+                                        x: touch_x,
+                                        y: touch_y,
+                                        timestamp,
+                                        released: value == 0,
+                                    });
+                                } else if value == 1 {
+                                    // Regular key press
+                                    _ = tx.send(AppEvent::Key {
+                                        code,
+                                        info: info.clone(),
+                                    });
+                                }
+                            }
+                            // Handle USB touchscreen absolute axis events
+                            EventSummary::AbsoluteAxis(_, abs_code, value) => {
+                                match abs_code {
+                                    evdev::AbsoluteAxisCode::ABS_X => {
+                                        touch_x = value as u16;
+                                    }
+                                    evdev::AbsoluteAxisCode::ABS_Y => {
+                                        touch_y = value as u16;
+                                    }
+                                    _ => {}
+                                }
                             }
                             // Handle mouse movement events
                             EventSummary::RelativeAxis(_, rel_code, value) => {

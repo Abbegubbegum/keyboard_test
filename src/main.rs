@@ -1,4 +1,5 @@
 mod event_handler;
+mod keyboard_layouts;
 mod keyboard_test;
 mod machine_detect;
 mod serial_touch;

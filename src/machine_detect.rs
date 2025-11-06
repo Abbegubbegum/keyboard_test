@@ -6,23 +6,22 @@ static COMPUTER_MODEL: OnceCell<Option<ComputerModel>> = OnceCell::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComputerModel {
-    DatorBBFält786,
-    DatorBBFält886,
+    DatorBBFält,
+    DatorBBFältGPS,
     EjKänd,
 }
 
 pub fn has_touchscreen(c: ComputerModel) -> bool {
     match c {
-        ComputerModel::DatorBBFält786 => true,
-        ComputerModel::DatorBBFält886 => true,
+        ComputerModel::DatorBBFält => true,
+        ComputerModel::DatorBBFältGPS => true,
         ComputerModel::EjKänd => false,
     }
 }
 
 pub fn has_serial_touchscreen(c: ComputerModel) -> bool {
     match c {
-        ComputerModel::DatorBBFält786 => true,
-        ComputerModel::DatorBBFält886 => true,
+        ComputerModel::DatorBBFält => true,
         _ => false,
     }
 }
@@ -36,27 +35,29 @@ pub fn get_computer_model() -> ComputerModel {
         return cached;
     }
 
-    if let Some(model) = read_trim("/sys/class/dmi/id/board_name") {
-        match model.as_str() {
-            "DR786EX" => {
-                COMPUTER_MODEL
-                    .set(Some(ComputerModel::DatorBBFält786))
-                    .unwrap();
-                ComputerModel::DatorBBFält786
-            }
-            "CAPELL VALLEY(NAPA) CRB" => {
-                COMPUTER_MODEL
-                    .set(Some(ComputerModel::DatorBBFält886))
-                    .unwrap();
-                ComputerModel::DatorBBFält886
-            }
-            _ => {
-                COMPUTER_MODEL.set(Some(ComputerModel::EjKänd)).unwrap();
-                ComputerModel::EjKänd
-            }
-        }
-    } else {
-        COMPUTER_MODEL.set(Some(ComputerModel::EjKänd)).unwrap();
-        ComputerModel::EjKänd
+    let read_model = read_computer_model();
+
+    COMPUTER_MODEL.set(Some(read_model)).unwrap();
+
+    return read_model;
+}
+
+fn read_computer_model() -> ComputerModel {
+    let mut model = ComputerModel::EjKänd;
+
+    if let Some(board_name) = read_trim("/sys/class/dmi/id/board_name") {
+        match board_name.as_str() {
+            "DR786EX" | "CAPELL VALLEY(NAPA) CRB" => model = ComputerModel::DatorBBFält,
+            _ => {}
+        };
     }
+
+    if let Some(product_name) = read_trim("/sys/class/dmi/id/product_name") {
+        match product_name.as_str() {
+            "DT10" => model = ComputerModel::DatorBBFältGPS,
+            _ => {}
+        }
+    }
+
+    return model;
 }
