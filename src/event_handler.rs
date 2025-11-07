@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::{fs, vec};
 use std::{thread, time::Duration};
 
+use crate::machine_detect::{ComputerModel, get_computer_model};
 use crate::serial_touch;
 
 #[derive(Debug, Clone)]
@@ -90,17 +91,7 @@ fn spawn_device_listener(
                             EventSummary::Key(_, code, value) => {
                                 // Handle BTN_TOUCH for USB touchscreens
                                 if code == KeyCode::BTN_TOUCH {
-                                    let timestamp = std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_millis();
-
-                                    _ = tx.send(AppEvent::Touch {
-                                        x: touch_x,
-                                        y: touch_y,
-                                        timestamp,
-                                        released: value == 0,
-                                    });
+                                    _ = tx.send(get_touch_event(touch_x, touch_y, value == 0));
                                 } else if value == 1 {
                                     // Regular key press
                                     _ = tx.send(AppEvent::Key {
@@ -110,17 +101,17 @@ fn spawn_device_listener(
                                 }
                             }
                             // Handle USB touchscreen absolute axis events
-                            EventSummary::AbsoluteAxis(_, abs_code, value) => {
-                                match abs_code {
-                                    evdev::AbsoluteAxisCode::ABS_X => {
-                                        touch_x = value as u16;
-                                    }
-                                    evdev::AbsoluteAxisCode::ABS_Y => {
-                                        touch_y = value as u16;
-                                    }
-                                    _ => {}
+                            EventSummary::AbsoluteAxis(_, abs_code, value) => match abs_code {
+                                evdev::AbsoluteAxisCode::ABS_X => {
+                                    touch_x = value as u16;
+                                    _ = tx.send(get_touch_event(touch_x, touch_y, false));
                                 }
-                            }
+                                evdev::AbsoluteAxisCode::ABS_Y => {
+                                    touch_y = value as u16;
+                                    _ = tx.send(get_touch_event(touch_x, touch_y, false));
+                                }
+                                _ => {}
+                            },
                             // Handle mouse movement events
                             EventSummary::RelativeAxis(_, rel_code, value) => {
                                 if rel_code == evdev::RelativeAxisCode::REL_X {
@@ -164,6 +155,30 @@ fn spawn_device_listener(
             }
         }
     });
+}
+
+fn get_touch_event(x: u16, y: u16, released: bool) -> AppEvent {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    // For some reason, on the GPS touchpad, x is y and y is x
+    if get_computer_model() == ComputerModel::DatorBBFältGPS {
+        AppEvent::Touch {
+            x: y,
+            y: x,
+            timestamp,
+            released,
+        }
+    } else {
+        AppEvent::Touch {
+            x,
+            y,
+            timestamp,
+            released,
+        }
+    }
 }
 
 fn hotswap_monitor(tx: Sender<AppEvent>, active_devices: Arc<Mutex<HashSet<String>>>) {

@@ -11,10 +11,10 @@ use std::u16;
 use crate::{Nav, Screen, ScreenId, event_handler::AppEvent};
 
 // Conservative raw-unit thresholds; tweak to your device scale if needed:
-static MIN_SPAN_X: u16 = 500; // require at least this many raw units across X
-static MIN_SPAN_Y: u16 = 500; // require at least this many raw units across Y
-static MIN_CORNER_DIST2: u32 = 100 * 100; // squared distance; avoid identical points (~100 raw units apart)
-static MIN_DIAGONAL2: u32 = 100000; // squared distance; reject near-degenerate rectangles (~1000 units)
+static MIN_SPAN_X: u16 = 100; // require at least this many raw units across X
+static MIN_SPAN_Y: u16 = 100; // require at least this many raw units across Y
+static MIN_CORNER_DIST2: u32 = 50 * 50; // squared distance; avoid identical points (~100 raw units apart)
+static MIN_DIAGONAL2: u32 = 1000; // squared distance; reject near-degenerate rectangles (~1000 units)
 
 static EXPECTED_MAX_X: u16 = 1000;
 static EXPECTED_MAX_Y: u16 = 1000;

@@ -163,6 +163,8 @@ fn main() -> Result<()> {
 
     let mut terminal = ratatui::init();
 
+    terminal.clear()?;
+
     let result = run(&mut terminal);
 
     ratatui::restore();
