@@ -2,6 +2,7 @@ mod event_handler;
 mod keyboard_layouts;
 mod keyboard_test;
 mod machine_detect;
+mod mouse_test;
 mod serial_touch;
 mod touchscreen_test;
 
@@ -21,6 +22,7 @@ use crate::{
     event_handler::AppEvent,
     keyboard_test::KeyboardTestScreen,
     machine_detect::{ComputerModel, get_computer_model, has_touchscreen},
+    mouse_test::MouseTestScreen,
     touchscreen_test::TouchscreenTestScreen,
 };
 
@@ -28,6 +30,7 @@ use crate::{
 pub enum ScreenId {
     Home,
     KeyboardTest,
+    MouseTest,
     TouchscreenTest,
     Exit,
 }
@@ -55,6 +58,7 @@ impl HomeScreen {
     fn new() -> Self {
         let mut menu = Vec::new();
         menu.push(("Keyboard Test", ScreenId::KeyboardTest));
+        menu.push(("Mouse Test", ScreenId::MouseTest));
 
         if has_touchscreen(get_computer_model()) {
             menu.push(("Touchscreen Test", ScreenId::TouchscreenTest));
@@ -149,6 +153,11 @@ impl Screen for HomeScreen {
                         return Nav::To(self.menu[2].1);
                     }
                 }
+                KeyCode::KEY_4 => {
+                    if self.menu.len() > 3 {
+                        return Nav::To(self.menu[3].1);
+                    }
+                }
                 _ => {}
             },
             _ => {}
@@ -232,6 +241,7 @@ fn create_screen(screen_id: ScreenId) -> Box<dyn Screen> {
     match screen_id {
         ScreenId::Home => Box::new(HomeScreen::new()),
         ScreenId::KeyboardTest => Box::new(KeyboardTestScreen::new()),
+        ScreenId::MouseTest => Box::new(MouseTestScreen::new()),
         ScreenId::TouchscreenTest => Box::new(TouchscreenTestScreen::new()),
         ScreenId::Exit => {
             eprintln!("Cannot create Exit screen");
