@@ -1,3 +1,4 @@
+use evdev::KeyCode;
 use ratatui::{
     Frame,
     style::{Style, Stylize},
@@ -36,7 +37,7 @@ impl Screen for MouseTestScreen {
         let footer = Line::from(vec![
             " ↑/↓".bold().yellow(),
             " sensitivity   ".into(),
-            "Esc".bold().yellow(),
+            "Q/Esc".bold().yellow(),
             " exit   ".into(),
             format!("Sensitivity: {:.1}x ", self.sensitivity).yellow(),
         ]);
@@ -74,14 +75,14 @@ impl Screen for MouseTestScreen {
     fn handle_event(&mut self, event: AppEvent) -> Nav {
         match event {
             AppEvent::Key { code, .. } => match code {
-                evdev::KeyCode::KEY_ESC | evdev::KeyCode::KEY_Q => {
+                KeyCode::KEY_ESC | KeyCode::KEY_Q => {
                     return Nav::To(ScreenId::Home);
                 }
-                evdev::KeyCode::KEY_UP => {
+                KeyCode::KEY_UP => {
                     // Increase sensitivity, max 5.0x
                     self.sensitivity = (self.sensitivity + 0.1).min(5.0);
                 }
-                evdev::KeyCode::KEY_DOWN => {
+                KeyCode::KEY_DOWN => {
                     // Decrease sensitivity, min 0.1x
                     self.sensitivity = (self.sensitivity - 0.1).max(0.1);
                 }

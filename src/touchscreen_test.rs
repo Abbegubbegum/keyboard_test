@@ -106,11 +106,6 @@ impl AsciiCanvas {
         }
         self.put(x, y, cch);
     }
-    fn text_block(&mut self, x: i32, y: i32, s: &str) {
-        for (i, ch) in s.chars().enumerate() {
-            self.put(x + i as i32, y, ch);
-        }
-    }
     fn to_text(&self) -> Text<'_> {
         let mut out = String::with_capacity(self.buf.len() + self.h as usize);
         for row in 0..self.h {
@@ -539,7 +534,7 @@ impl TouchscreenTestScreen {
                 Style::default().fg(Color::Cyan).bold(),
             ),
             Span::raw(" – press "),
-            Span::styled("Q", Style::default().fg(Color::Yellow).bold()),
+            Span::styled("Q/Esc", Style::default().fg(Color::Yellow).bold()),
             Span::raw(" to exit"),
         ];
 

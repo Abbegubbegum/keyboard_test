@@ -11,17 +11,17 @@ use crossbeam_channel::unbounded;
 use evdev::KeyCode;
 use ratatui::{
     DefaultTerminal, Frame,
-    layout::{Constraint, Flex, Layout, Rect},
+    layout::{Constraint, Flex, Layout},
     style::{Style, Stylize},
     symbols::border,
     text::{Line, Text},
-    widgets::{Block, HighlightSpacing, List, ListItem, ListState, Paragraph, StatefulWidget},
+    widgets::{Block, List, ListItem, Paragraph},
 };
 
 use crate::{
     event_handler::AppEvent,
     keyboard_test::KeyboardTestScreen,
-    machine_detect::{ComputerModel, get_computer_model, has_touchscreen},
+    machine_detect::{get_computer_model, has_touchscreen},
     mouse_test::MouseTestScreen,
     touchscreen_test::TouchscreenTestScreen,
 };

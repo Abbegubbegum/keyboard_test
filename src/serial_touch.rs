@@ -1,6 +1,6 @@
 use crate::{
     event_handler::AppEvent,
-    machine_detect::{ComputerModel, get_computer_model, has_serial_touchscreen},
+    machine_detect::{get_computer_model, has_serial_touchscreen},
 };
 
 use std::{thread, time::Duration};

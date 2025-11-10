@@ -1,7 +1,7 @@
 use evdev::KeyCode;
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Rect},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Paragraph},
@@ -108,7 +108,7 @@ impl Screen for KeyboardTestScreen {
                             self.ctrl_presses = 0;
                             self.mode = KeyboardTestMode::Testing;
                         }
-                        KeyCode::KEY_ESC => {
+                        KeyCode::KEY_ESC | KeyCode::KEY_Q => {
                             return Nav::To(ScreenId::Home);
                         }
                         // Still allow Ctrl×4 escape while on selection screen
@@ -191,7 +191,7 @@ impl KeyboardTestScreen {
             " to start test • ".into(),
             "Ctrl x4".bold(),
             " or ".into(),
-            "Esc".bold(),
+            "Q/Esc".bold(),
             " to go back".into(),
         ])
         .centered();
