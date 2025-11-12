@@ -106,6 +106,10 @@ const DATOR_BB_FÄLT_OLD_LAYOUT: KeyboardLayout = &[&[&[
         ("↓", KeyCode::KEY_DOWN),
         ("→", KeyCode::KEY_RIGHT),
     ],
+    &[
+        ("MOUSE_LEFT", KeyCode::BTN_LEFT),
+        ("MOUSE_RIGHT", KeyCode::BTN_RIGHT),
+    ],
 ]]];
 
 const DATOR_BB_FÄLT_NY_LAYOUT: KeyboardLayout = &[&[&[
@@ -192,6 +196,10 @@ const DATOR_BB_FÄLT_NY_LAYOUT: KeyboardLayout = &[&[&[
         ("←", KeyCode::KEY_LEFT),
         ("↓", KeyCode::KEY_DOWN),
         ("→", KeyCode::KEY_RIGHT),
+    ],
+    &[
+        ("MOUSE_LEFT", KeyCode::BTN_LEFT),
+        ("MOUSE_RIGHT", KeyCode::BTN_RIGHT),
     ],
 ]]];
 
@@ -370,6 +378,10 @@ const DEFAULT_SIDE_LAYOUT: KeyLayout = &[
         ("←", KeyCode::KEY_LEFT),
         ("↓", KeyCode::KEY_DOWN),
         ("→", KeyCode::KEY_RIGHT),
+    ],
+    &[
+        ("MOUSE_LEFT", KeyCode::BTN_LEFT),
+        ("MOUSE_RIGHT", KeyCode::BTN_RIGHT),
     ],
 ];
 
