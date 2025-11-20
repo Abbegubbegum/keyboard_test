@@ -1,8 +1,9 @@
 use color_eyre::Result;
 use color_eyre::eyre::eyre;
 use crossbeam_channel::Sender;
-use evdev::{Device, EventSummary, KeyCode};
-use std::collections::HashSet;
+use crossterm::terminal;
+use evdev::{AbsoluteAxisCode, Device, EventSummary, KeyCode};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::{fs, vec};
 use std::{thread, time::Duration};
@@ -14,6 +15,24 @@ use crate::serial_touch;
 pub struct DeviceInfo {
     pub path: String,
     pub name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct FingerState {
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub pressure: Option<i32>,
+    pub major: Option<i32>,
+    pub width: Option<i32>,
+    pub pending: bool,
+}
+
+#[derive(Debug)]
+pub enum TrackpadEvent {
+    FingerUpdate { slot: usize, state: FingerState },
+    FingerUp { slot: usize },
+    Click { down: bool },
+    FingerCount { count: usize },
 }
 
 #[derive(Debug)]
@@ -33,6 +52,175 @@ pub enum AppEvent {
         timestamp: u128,
         released: bool,
     },
+    Trackpad {
+        event: TrackpadEvent,
+    },
+}
+
+pub struct TrackpadEventHandler {
+    pub sender: Sender<AppEvent>,
+
+    // last known state per finger id
+    slots: Vec<Option<FingerState>>,
+    current_slot: Option<usize>,
+
+    // per-SYN aggregated pending fields
+    pending_finger_up: Vec<usize>,
+    pending_click: Option<bool>,
+    pending_finger_count: Option<usize>,
+}
+
+impl TrackpadEventHandler {
+    pub fn new(sender: Sender<AppEvent>) -> Self {
+        Self {
+            sender,
+            slots: vec![None; 10],
+            current_slot: None,
+
+            pending_finger_up: vec![],
+            pending_click: None,
+            pending_finger_count: None,
+        }
+    }
+
+    pub fn handle_event(&mut self, event: &EventSummary) {
+        match *event {
+            EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_MT_SLOT, value) => {
+                self.current_slot = Some(value as usize);
+            }
+            EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_MT_TRACKING_ID, value) => {
+                if let Some(slot) = self.current_slot {
+                    if value < 0 {
+                        // Finger lifted on this slot
+                        if let Some(_old) = self.slots[slot].take() {
+                            self.pending_finger_up.push(slot);
+                        }
+                    } else {
+                        // New finger in this slot
+                        self.slots[slot] = Some(FingerState {
+                            x: None,
+                            y: None,
+                            pressure: None,
+                            major: None,
+                            width: None,
+                            pending: true,
+                        });
+                    }
+                }
+            }
+
+            // -------- ABSOLUTE MULTITOUCH --------
+            EventSummary::AbsoluteAxis(_, abs_code, value) => {
+                if let Some(slot) = self.current_slot {
+                    if let Some(f) = self.slots[slot].as_mut() {
+                        match abs_code {
+                            AbsoluteAxisCode::ABS_MT_POSITION_X => {
+                                f.x = Some(value);
+                                f.pending = true;
+                            }
+                            AbsoluteAxisCode::ABS_MT_POSITION_Y => {
+                                f.y = Some(value);
+                                f.pending = true;
+                            }
+                            AbsoluteAxisCode::ABS_MT_PRESSURE => {
+                                f.pressure = Some(value);
+                                f.pending = true;
+                            }
+                            AbsoluteAxisCode::ABS_MT_TOUCH_MAJOR => {
+                                f.major = Some(value);
+                                f.pending = true;
+                            }
+                            AbsoluteAxisCode::ABS_MT_WIDTH_MAJOR => {
+                                f.width = Some(value);
+                                f.pending = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            // -------- CLICK / BUTTONS --------
+            EventSummary::Key(_, code, value) => match code {
+                KeyCode::BTN_LEFT => {
+                    self.pending_click = Some(value == 1);
+                }
+                KeyCode::BTN_TOOL_FINGER => {
+                    self.pending_finger_count = Some(1);
+                }
+                KeyCode::BTN_TOOL_DOUBLETAP => {
+                    self.pending_finger_count = Some(2);
+                }
+                KeyCode::BTN_TOOL_TRIPLETAP => {
+                    self.pending_finger_count = Some(3);
+                }
+                KeyCode::BTN_TOOL_QUADTAP => {
+                    self.pending_finger_count = Some(4);
+                }
+                _ => {}
+            },
+
+            // -------- SYN_REPORT = EMIT ONE EVENT --------
+            EventSummary::Synchronization(..) => {
+                self.flush_syn_report();
+            }
+
+            _ => {}
+        }
+    }
+
+    fn flush_syn_report(&mut self) {
+        // Click events (simple)
+        if let Some(down) = self.pending_click.take() {
+            let _ = self.sender.send(AppEvent::Trackpad {
+                event: TrackpadEvent::Click { down },
+            });
+        }
+
+        // Finger count
+        if let Some(count) = self.pending_finger_count.take() {
+            let _ = self.sender.send(AppEvent::Trackpad {
+                event: TrackpadEvent::FingerCount { count },
+            });
+        }
+
+        // Finger-Up
+        for slot in self.pending_finger_up.drain(..) {
+            let _ = self.sender.send(AppEvent::Trackpad {
+                event: TrackpadEvent::FingerUp { slot },
+            });
+        }
+
+        // Collect pending updates first to avoid borrowing self.slots mutably while it's immutably borrowed.
+        let pending_updates: Vec<(usize, FingerState)> = self
+            .slots
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, f)| {
+                f.as_ref().and_then(|fs| {
+                    if fs.pending {
+                        Some((slot, fs.clone()))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+
+        // Send pending updates
+        for (slot, state) in pending_updates {
+            let _ = self.sender.send(AppEvent::Trackpad {
+                event: TrackpadEvent::FingerUpdate { slot, state },
+            });
+        }
+
+        // Now clear pending flags with a mutable iteration
+        for maybe in self.slots.iter_mut() {
+            if let Some(f) = maybe {
+                f.pending = false;
+            }
+        }
+    }
 }
 
 pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> Result<()> {
@@ -80,18 +268,29 @@ fn spawn_device_listener(
         thread::sleep(Duration::from_millis(100)); // Allow some stagger time
 
         // USB touchscreen state tracking
-        let mut touch_x: u16 = 0;
-        let mut touch_y: u16 = 0;
+        let mut touchpad_x: u16 = 0;
+        let mut touchpad_y: u16 = 0;
+        let mut trackpad_handler = TrackpadEventHandler::new(tx.clone());
 
         loop {
             match dev.fetch_events() {
                 Ok(events) => {
                     for event in events {
+                        // Mouse trackpad on the RS11
+                        if info.name.contains("ETPS") {
+                            trackpad_handler.handle_event(&event.destructure());
+                            continue;
+                        }
+
                         match event.destructure() {
                             EventSummary::Key(_, code, value) => {
                                 // Handle BTN_TOUCH for USB touchscreens
                                 if code == KeyCode::BTN_TOUCH {
-                                    _ = tx.send(get_touch_event(touch_x, touch_y, value == 0));
+                                    _ = tx.send(get_touch_event(
+                                        touchpad_x,
+                                        touchpad_y,
+                                        value == 0,
+                                    ));
                                 } else if value == 1 {
                                     // Regular key press
                                     _ = tx.send(AppEvent::Key {
@@ -103,12 +302,12 @@ fn spawn_device_listener(
                             // Handle USB touchscreen absolute axis events
                             EventSummary::AbsoluteAxis(_, abs_code, value) => match abs_code {
                                 evdev::AbsoluteAxisCode::ABS_X => {
-                                    touch_x = value as u16;
-                                    _ = tx.send(get_touch_event(touch_x, touch_y, false));
+                                    touchpad_x = value as u16;
+                                    _ = tx.send(get_touch_event(touchpad_x, touchpad_y, false));
                                 }
                                 evdev::AbsoluteAxisCode::ABS_Y => {
-                                    touch_y = value as u16;
-                                    _ = tx.send(get_touch_event(touch_x, touch_y, false));
+                                    touchpad_y = value as u16;
+                                    _ = tx.send(get_touch_event(touchpad_x, touchpad_y, false));
                                 }
                                 _ => {}
                             },

@@ -8,6 +8,7 @@ static COMPUTER_MODEL: OnceCell<Option<ComputerModel>> = OnceCell::new();
 pub enum ComputerModel {
     DatorBBFält,
     DatorBBFältGPS,
+    DatorBärbarRS11,
     EjKänd,
 }
 
@@ -15,7 +16,7 @@ pub fn has_touchscreen(c: ComputerModel) -> bool {
     match c {
         ComputerModel::DatorBBFält => true,
         ComputerModel::DatorBBFältGPS => true,
-        ComputerModel::EjKänd => false,
+        _ => false,
     }
 }
 
