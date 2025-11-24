@@ -5,6 +5,7 @@ mod machine_detect;
 mod mouse_test;
 mod serial_touch;
 mod touchscreen_test;
+mod trackpad_test;
 
 use color_eyre::Result;
 use crossbeam_channel::unbounded;
@@ -24,6 +25,7 @@ use crate::{
     machine_detect::{get_computer_model, has_touchscreen},
     mouse_test::MouseTestScreen,
     touchscreen_test::TouchscreenTestScreen,
+    trackpad_test::TrackpadTestScreen,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +34,7 @@ pub enum ScreenId {
     KeyboardTest,
     MouseTest,
     TouchscreenTest,
+    TrackpadTest,
     Exit,
 }
 
@@ -64,6 +67,7 @@ impl HomeScreen {
             menu.push(("Touchscreen Test", ScreenId::TouchscreenTest));
         }
 
+        menu.push(("Trackpad Test", ScreenId::TrackpadTest));
         menu.push(("Exit", ScreenId::Exit));
         HomeScreen { selected: 0, menu }
     }
@@ -243,6 +247,7 @@ fn create_screen(screen_id: ScreenId) -> Box<dyn Screen> {
         ScreenId::KeyboardTest => Box::new(KeyboardTestScreen::new()),
         ScreenId::MouseTest => Box::new(MouseTestScreen::new()),
         ScreenId::TouchscreenTest => Box::new(TouchscreenTestScreen::new()),
+        ScreenId::TrackpadTest => Box::new(TrackpadTestScreen::new()),
         ScreenId::Exit => {
             eprintln!("Cannot create Exit screen");
             Box::new(HomeScreen::new())
