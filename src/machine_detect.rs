@@ -56,6 +56,7 @@ fn read_computer_model() -> ComputerModel {
     if let Some(product_name) = read_trim("/sys/class/dmi/id/product_name") {
         match product_name.as_str() {
             "DT10" => model = ComputerModel::DatorBBFältGPS,
+            "RS11" => model = ComputerModel::DatorBärbarRS11,
             _ => {}
         }
     }
