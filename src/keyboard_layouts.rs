@@ -107,8 +107,8 @@ const DATOR_BB_FÄLT_OLD_LAYOUT: KeyboardLayout = &[&[&[
         ("→", KeyCode::KEY_RIGHT),
     ],
     &[
-        ("MOUSE_LEFT", KeyCode::BTN_LEFT),
-        ("MOUSE_RIGHT", KeyCode::BTN_RIGHT),
+        ("Mouse Left", KeyCode::BTN_LEFT),
+        ("Mouse Right", KeyCode::BTN_RIGHT),
     ],
 ]]];
 
@@ -198,8 +198,8 @@ const DATOR_BB_FÄLT_NY_LAYOUT: KeyboardLayout = &[&[&[
         ("→", KeyCode::KEY_RIGHT),
     ],
     &[
-        ("MOUSE_LEFT", KeyCode::BTN_LEFT),
-        ("MOUSE_RIGHT", KeyCode::BTN_RIGHT),
+        ("Mouse Left", KeyCode::BTN_LEFT),
+        ("Mouse Right", KeyCode::BTN_RIGHT),
     ],
 ]]];
 
@@ -273,7 +273,108 @@ const DATOR_BB_FÄLT_GPS: KeyboardLayout = &[&[&[
     ],
 ]]];
 
-const DEFAULT_MAIN_KEYBOARD_LAYOUT: KeyLayout = &[
+const DATOR_BÄRBAR_RS11: KeyboardLayout = &[&[&[
+    &[
+        ("ESC", KeyCode::KEY_ESC),
+        ("F1", KeyCode::KEY_F1),
+        ("F2", KeyCode::KEY_F2),
+        ("F3", KeyCode::KEY_F3),
+        ("F4", KeyCode::KEY_F4),
+        ("F5", KeyCode::KEY_F5),
+        ("F6", KeyCode::KEY_F6),
+        ("F7", KeyCode::KEY_F7),
+        ("F8", KeyCode::KEY_F8),
+        ("F9", KeyCode::KEY_F9),
+        ("F10", KeyCode::KEY_F10),
+        ("F11", KeyCode::KEY_F11),
+        ("F12", KeyCode::KEY_F12),
+        ("PrtSc", KeyCode::KEY_SYSRQ),
+        ("Ins", KeyCode::KEY_INSERT),
+        ("Pause", KeyCode::KEY_PAUSE),
+        ("Del", KeyCode::KEY_DELETE),
+    ],
+    &[
+        ("`", KeyCode::KEY_GRAVE),
+        ("1", KeyCode::KEY_1),
+        ("2", KeyCode::KEY_2),
+        ("3", KeyCode::KEY_3),
+        ("4", KeyCode::KEY_4),
+        ("5", KeyCode::KEY_5),
+        ("6", KeyCode::KEY_6),
+        ("7", KeyCode::KEY_7),
+        ("8", KeyCode::KEY_8),
+        ("9", KeyCode::KEY_9),
+        ("0", KeyCode::KEY_0),
+        ("+", KeyCode::KEY_MINUS),
+        ("`", KeyCode::KEY_EQUAL),
+        ("Backspace", KeyCode::KEY_BACKSPACE),
+    ],
+    &[
+        ("Tab", KeyCode::KEY_TAB),
+        ("Q", KeyCode::KEY_Q),
+        ("W", KeyCode::KEY_W),
+        ("E", KeyCode::KEY_E),
+        ("R", KeyCode::KEY_R),
+        ("T", KeyCode::KEY_T),
+        ("Y", KeyCode::KEY_Y),
+        ("U", KeyCode::KEY_U),
+        ("I", KeyCode::KEY_I),
+        ("O", KeyCode::KEY_O),
+        ("P", KeyCode::KEY_P),
+        ("Å", KeyCode::KEY_LEFTBRACE),
+        ("^", KeyCode::KEY_RIGHTBRACE),
+        ("Enter", KeyCode::KEY_ENTER),
+    ],
+    &[
+        ("CapsLock", KeyCode::KEY_CAPSLOCK),
+        ("A", KeyCode::KEY_A),
+        ("S", KeyCode::KEY_S),
+        ("D", KeyCode::KEY_D),
+        ("F", KeyCode::KEY_F),
+        ("G", KeyCode::KEY_G),
+        ("H", KeyCode::KEY_H),
+        ("J", KeyCode::KEY_J),
+        ("K", KeyCode::KEY_K),
+        ("L", KeyCode::KEY_L),
+        ("Ö", KeyCode::KEY_SEMICOLON),
+        ("Ä", KeyCode::KEY_APOSTROPHE),
+        ("'", KeyCode::KEY_BACKSLASH),
+    ],
+    &[
+        ("Shift", KeyCode::KEY_LEFTSHIFT),
+        ("<", KeyCode::KEY_102ND),
+        ("Z", KeyCode::KEY_Z),
+        ("X", KeyCode::KEY_X),
+        ("C", KeyCode::KEY_C),
+        ("V", KeyCode::KEY_V),
+        ("B", KeyCode::KEY_B),
+        ("N", KeyCode::KEY_N),
+        ("M", KeyCode::KEY_M),
+        (",", KeyCode::KEY_COMMA),
+        (".", KeyCode::KEY_DOT),
+        ("-", KeyCode::KEY_SLASH),
+        ("RShift", KeyCode::KEY_RIGHTSHIFT),
+        ("↑", KeyCode::KEY_UP),
+    ],
+    &[
+        ("LCtrl", KeyCode::KEY_LEFTCTRL),
+        ("LWin", KeyCode::KEY_LEFTMETA),
+        ("Alt", KeyCode::KEY_LEFTALT),
+        ("Space", KeyCode::KEY_SPACE),
+        ("Alt Gr", KeyCode::KEY_RIGHTALT),
+        ("MENU", KeyCode::KEY_COMPOSE),
+        ("RCtrl", KeyCode::KEY_RIGHTCTRL),
+        ("←", KeyCode::KEY_LEFT),
+        ("↓", KeyCode::KEY_DOWN),
+        ("→", KeyCode::KEY_RIGHT),
+    ],
+    &[
+        ("Mouse Left", KeyCode::BTN_LEFT),
+        ("Mouse Right", KeyCode::BTN_RIGHT),
+    ],
+]]];
+
+const DEFAULT_MAIN_LAYOUT: KeyLayout = &[
     &[
         ("ESC", KeyCode::KEY_ESC),
         ("F1", KeyCode::KEY_F1),
@@ -380,8 +481,8 @@ const DEFAULT_SIDE_LAYOUT: KeyLayout = &[
         ("→", KeyCode::KEY_RIGHT),
     ],
     &[
-        ("MOUSE_LEFT", KeyCode::BTN_LEFT),
-        ("MOUSE_RIGHT", KeyCode::BTN_RIGHT),
+        ("Mouse Left", KeyCode::BTN_LEFT),
+        ("Mouse Right", KeyCode::BTN_RIGHT),
     ],
 ];
 
@@ -416,7 +517,7 @@ const DEFAULT_NUMPAD_LAYOUT: KeyLayout = &[
 ];
 
 const DEFAULT_KEYBOARD: KeyboardLayout = &[
-    &[&DEFAULT_MAIN_KEYBOARD_LAYOUT],
+    &[&DEFAULT_MAIN_LAYOUT],
     &[&DEFAULT_SIDE_LAYOUT, &DEFAULT_NUMPAD_LAYOUT],
 ];
 
@@ -433,5 +534,10 @@ pub const LAYOUT_OPTIONS: &[(&str, KeyboardLayout, Option<ComputerModel>)] = &[
         "Dator BB Fält GPS",
         DATOR_BB_FÄLT_GPS,
         Some(ComputerModel::DatorBBFältGPS),
+    ),
+    (
+        "Dator Bärbar RS11",
+        DATOR_BÄRBAR_RS11,
+        Some(ComputerModel::DatorBärbarRS11),
     ),
 ];
