@@ -13,14 +13,16 @@ pub struct MouseTestScreen {
     cursor_x: f32,
     cursor_y: f32,
     sensitivity: f32,
+    event_count: u64,
 }
 
 impl MouseTestScreen {
     pub fn new() -> Self {
         MouseTestScreen {
-            cursor_x: 40.0, // Start in middle of typical terminal
-            cursor_y: 12.0,
+            cursor_x: 70.0, // Start in middle of typical terminal
+            cursor_y: 20.0,
             sensitivity: 0.2,
+            event_count: 0,
         }
     }
 }
@@ -33,10 +35,16 @@ impl Screen for MouseTestScreen {
     fn draw(&self, frame: &mut Frame) {
         let area = frame.area();
 
-        let title = Line::from(" Mouse Test ".bold().cyan());
+        let title = Line::from(vec![
+            " Mouse Test ".bold().cyan(),
+            format!("| Position: ({:.0}, {:.0}) ", self.cursor_x, self.cursor_y).into(),
+            format!("| Events: {} ", self.event_count).yellow(),
+        ]);
         let footer = Line::from(vec![
             " ↑/↓".bold().yellow(),
             " sensitivity   ".into(),
+            "Space".bold().yellow(),
+            " reset   ".into(),
             "Q/Esc".bold().yellow(),
             " exit   ".into(),
             format!("Sensitivity: {:.1}x ", self.sensitivity).yellow(),
@@ -86,6 +94,11 @@ impl Screen for MouseTestScreen {
                     // Decrease sensitivity, min 0.1x
                     self.sensitivity = (self.sensitivity - 0.1).max(0.1);
                 }
+                KeyCode::KEY_SPACE => {
+                    // Reset cursor position
+                    self.cursor_x = 70.0;
+                    self.cursor_y = 20.0;
+                }
                 _ => {}
             },
             AppEvent::Mouse { x, y, .. } => {
@@ -93,6 +106,10 @@ impl Screen for MouseTestScreen {
                 // x and y are deltas, not absolute positions
                 self.cursor_x += x as f32 * self.sensitivity;
                 self.cursor_y += y as f32 * self.sensitivity;
+
+                self.cursor_x = self.cursor_x.clamp(0.0, 200.0);
+                self.cursor_y = self.cursor_y.clamp(0.0, 100.0);
+                self.event_count += 1;
             }
             _ => {}
         }
