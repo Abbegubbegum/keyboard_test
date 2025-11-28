@@ -239,7 +239,7 @@ impl KeyboardTestScreen {
         self.draw_key_grid(frame, horizontal_chunks[1], self.keyboard_layout[1][1]);
     }
 
-    fn draw_key_grid(&self, frame: &mut Frame, area: Rect, keys: &[&[(&str, KeyCode)]]) {
+    fn draw_key_grid(&self, frame: &mut Frame, area: Rect, keys: &[&[(&str, &[KeyCode])]]) {
         let key_height = 3;
         let row_spacing = 0;
         let column_spacing = 0;
@@ -261,10 +261,15 @@ impl KeyboardTestScreen {
                 .spacing(column_spacing)
                 .split(row_area);
 
-            for (i, (label, keycode)) in row.iter().enumerate() {
+            for (i, (label, keycodes)) in row.iter().enumerate() {
                 let key_rect = hchunks[i];
 
-                let press_count = self.pressed_keys.get(keycode).unwrap_or(&0);
+                // Check if any of the keycodes for this button have been pressed
+                let press_count = keycodes
+                    .iter()
+                    .map(|kc| self.pressed_keys.get(kc).unwrap_or(&0))
+                    .max()
+                    .unwrap_or(&0);
 
                 self.draw_key(frame, key_rect, label, press_count);
             }

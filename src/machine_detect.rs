@@ -9,6 +9,7 @@ pub enum ComputerModel {
     DatorBBFält,
     DatorBBFältGPS,
     DatorBärbarRS11,
+    DatorBärbarCMBRF8,
     EjKänd,
 }
 
@@ -57,6 +58,8 @@ fn read_computer_model() -> ComputerModel {
         match product_name.as_str() {
             "DT10" => model = ComputerModel::DatorBBFältGPS,
             "RS11" => model = ComputerModel::DatorBärbarRS11,
+            "Calistoga & ICH7M Chipset" => model = ComputerModel::DatorBärbarCMBRF8,
+            "Montara Family of Chipsets" => model = ComputerModel::DatorBBFält,
             _ => {}
         }
     }
