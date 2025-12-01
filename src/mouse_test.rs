@@ -14,6 +14,8 @@ pub struct MouseTestScreen {
     cursor_y: f32,
     sensitivity: f32,
     event_count: u64,
+    left_button_presses: u64,
+    right_button_presses: u64,
 }
 
 impl MouseTestScreen {
@@ -23,6 +25,8 @@ impl MouseTestScreen {
             cursor_y: 20.0,
             sensitivity: 0.2,
             event_count: 0,
+            left_button_presses: 0,
+            right_button_presses: 0,
         }
     }
 }
@@ -39,6 +43,8 @@ impl Screen for MouseTestScreen {
             " Mouse Test ".bold().cyan(),
             format!("| Position: ({:.0}, {:.0}) ", self.cursor_x, self.cursor_y).into(),
             format!("| Events: {} ", self.event_count).yellow(),
+            format!("| L: {} ", self.left_button_presses).green(),
+            format!("| R: {} ", self.right_button_presses).green(),
         ]);
         let footer = Line::from(vec![
             " ↑/↓".bold().yellow(),
@@ -98,6 +104,12 @@ impl Screen for MouseTestScreen {
                     // Reset cursor position
                     self.cursor_x = 70.0;
                     self.cursor_y = 20.0;
+                }
+                KeyCode::BTN_LEFT => {
+                    self.left_button_presses += 1;
+                }
+                KeyCode::BTN_RIGHT => {
+                    self.right_button_presses += 1;
                 }
                 _ => {}
             },

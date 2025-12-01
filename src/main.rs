@@ -141,7 +141,7 @@ impl Screen for HomeScreen {
                 KeyCode::KEY_UP => {
                     self.selected = (self.selected + self.menu.len() - 1) % self.menu.len();
                 }
-                KeyCode::KEY_ENTER => {
+                KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => {
                     return Nav::To(self.menu[self.selected].1);
                 }
                 KeyCode::KEY_ESC => return Nav::To(ScreenId::Exit),
