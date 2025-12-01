@@ -441,7 +441,7 @@ const DATOR_BÄRBAR_CM_B_RF8: KeyboardLayout = &[&[&[
         ("L", &[KeyCode::KEY_L, KeyCode::KEY_KP3]),
         ("Ö", &[KeyCode::KEY_SEMICOLON, KeyCode::KEY_KPPLUS]),
         ("Ä", &[KeyCode::KEY_APOSTROPHE]),
-        ("Enter", &[KeyCode::KEY_ENTER]),
+        ("Enter", &[KeyCode::KEY_ENTER, KeyCode::KEY_KPENTER]),
         ("PgDn", &[KeyCode::KEY_PAGEDOWN]),
     ],
     &[
