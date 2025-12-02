@@ -268,10 +268,9 @@ impl KeyboardTestScreen {
                 let press_count = keycodes
                     .iter()
                     .map(|kc| self.pressed_keys.get(kc).unwrap_or(&0))
-                    .max()
-                    .unwrap_or(&0);
+                    .sum::<usize>();
 
-                self.draw_key(frame, key_rect, label, press_count);
+                self.draw_key(frame, key_rect, label, &press_count);
             }
         }
     }
