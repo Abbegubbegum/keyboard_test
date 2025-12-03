@@ -1,11 +1,12 @@
 use evdev::KeyCode;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::Rect,
     style::{Color, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph},
 };
+use std::collections::VecDeque;
 use std::u16;
 
 use crate::{Nav, Screen, ScreenId, event_handler::AppEvent};
@@ -16,11 +17,16 @@ static MIN_SPAN_Y: u16 = 100; // require at least this many raw units across Y
 static MIN_CORNER_DIST2: u32 = 50 * 50; // squared distance; avoid identical points (~100 raw units apart)
 static MIN_DIAGONAL2: u32 = 1000; // squared distance; reject near-degenerate rectangles (~1000 units)
 
-static EXPECTED_MAX_X: u16 = 1000;
-static EXPECTED_MAX_Y: u16 = 1000;
-
 static COLS: u16 = 16;
 static ROWS: u16 = 12;
+
+static CALIBRATED_MAX_X: u16 = 999;
+static CALIBRATED_MAX_Y: u16 = 999;
+
+// Trail and statistics configuration
+const MAX_TRAIL_LENGTH: usize = 200;
+const TRAIL_LIFETIME_MS: u128 = 2000; // Trail points disappear after 2 seconds
+const JUMP_THRESHOLD: f32 = 50.0; // Distance in units to consider a "jump"
 
 struct AsciiCanvas {
     w: u16,
@@ -74,37 +80,6 @@ impl AsciiCanvas {
     }
     fn arrow(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, shaft: char) {
         self.line(x0, y0, x1, y1, shaft);
-        // crude arrowhead at (x1,y1)
-        let hx = x1 - x0;
-        let hy = y1 - y0;
-        let (ax, ay, head) = if hx.abs() > hy.abs() {
-            if hx >= 0 {
-                (x1, y1, '>')
-            } else {
-                (x1, y1, '<')
-            }
-        } else {
-            if hy >= 0 {
-                (x1, y1, 'v')
-            } else {
-                (x1, y1, '^')
-            }
-        };
-        self.put(ax, ay, head);
-    }
-    fn crosshair(&mut self, x: i32, y: i32, size: i32, strong: bool) {
-        let (hch, vch, cch) = if strong {
-            ('-', '|', 'X')
-        } else {
-            ('-', '|', '+')
-        };
-        for dx in -size..=size {
-            self.put(x + dx, y, hch);
-        }
-        for dy in -size..=size {
-            self.put(x, y + dy, vch);
-        }
-        self.put(x, y, cch);
     }
     fn to_text(&self) -> Text<'_> {
         let mut out = String::with_capacity(self.buf.len() + self.h as usize);
@@ -151,6 +126,12 @@ struct Calibration {
 
     is_touching: bool,
     error: Option<String>,
+
+    // Hold tracking for calibration
+    touch_start_time: Option<u128>,
+    touch_start_pos: Option<(u16, u16)>,
+    hold_duration_ms: u128,
+    touch_samples: Vec<(u16, u16)>, // Collect samples during hold
 }
 
 impl Calibration {
@@ -160,32 +141,20 @@ impl Calibration {
             pts: [(0, 0); 4],
             count: 0,
             min_x: 0,
-            max_x: EXPECTED_MAX_X,
+            max_x: u16::MAX,
             min_y: 0,
-            max_y: EXPECTED_MAX_Y,
+            max_y: u16::MAX,
             invert_x: false,
             invert_y: false,
             scale_x: 1.0,
             scale_y: 1.0,
             is_touching: false,
             error: None,
+            touch_start_time: None,
+            touch_start_pos: None,
+            hold_duration_ms: 0,
+            touch_samples: Vec::new(),
         }
-    }
-
-    fn prompt(&self) -> String {
-        let prompt_str = if self.is_touching { "Release" } else { "Touch" };
-
-        format!(
-            "{} the {}",
-            prompt_str,
-            match self.step {
-                CalibrationStep::TopLeft => "TOP-LEFT",
-                CalibrationStep::TopRight => "TOP-RIGHT",
-                CalibrationStep::BottomRight => "BOTTOM-RIGHT",
-                CalibrationStep::BottomLeft => "BOTTOM-LEFT",
-                CalibrationStep::Done => "Calibration complete",
-            }
-        )
     }
 
     fn record_touch(&mut self, touch_event: &AppEvent) {
@@ -200,30 +169,90 @@ impl Calibration {
                 return;
             }
 
+            const REQUIRED_HOLD_MS: u128 = 1000; // 1 second
+            const MAX_MOVEMENT: u16 = 20; // Max movement in raw units before reset
+
             if !released {
+                // Touch started or continuing
                 self.is_touching = true;
+
+                if self.touch_start_time.is_none() {
+                    // First touch - record start time and position using system time
+                    let current_time = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis();
+                    self.touch_start_time = Some(current_time);
+                    self.touch_start_pos = Some((*x, *y));
+                    self.hold_duration_ms = 0;
+                    self.touch_samples.clear();
+                    self.touch_samples.push((*x, *y));
+                } else {
+                    // Continuing touch - check if moved too much
+                    if let Some((start_x, start_y)) = self.touch_start_pos {
+                        let dx = (*x as i32 - start_x as i32).abs();
+                        let dy = (*y as i32 - start_y as i32).abs();
+
+                        if dx > MAX_MOVEMENT as i32 || dy > MAX_MOVEMENT as i32 {
+                            // Moved too much - reset the timer
+                            let current_time = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis();
+                            self.touch_start_time = Some(current_time);
+                            self.touch_start_pos = Some((*x, *y));
+                            self.hold_duration_ms = 0;
+                            self.touch_samples.clear();
+                            self.touch_samples.push((*x, *y));
+                        } else {
+                            // Still within acceptable range - add sample
+                            self.touch_samples.push((*x, *y));
+                        }
+                    }
+                }
+                // Hold duration will be updated by update_hold_duration() called on Tick events
                 return;
             }
 
+            // Touch released
             self.is_touching = false;
 
-            self.pts[self.count] = (*x, *y);
-            self.count += 1;
-            self.step = match self.step {
-                CalibrationStep::TopLeft => CalibrationStep::TopRight,
-                CalibrationStep::TopRight => CalibrationStep::BottomRight,
-                CalibrationStep::BottomRight => CalibrationStep::BottomLeft,
-                CalibrationStep::BottomLeft => CalibrationStep::Done,
-                CalibrationStep::Done => CalibrationStep::Done,
-            };
-            if let CalibrationStep::Done = self.step {
-                self.finalize();
-                if self.error.is_some() {
-                    // Reset to try again
-                    self.step = CalibrationStep::TopLeft;
-                    self.count = 0;
+            // Check if hold was long enough
+            if self.hold_duration_ms >= REQUIRED_HOLD_MS {
+                // Calculate average of all samples for better accuracy
+                if !self.touch_samples.is_empty() {
+                    let sum_x: u32 = self.touch_samples.iter().map(|(x, _)| *x as u32).sum();
+                    let sum_y: u32 = self.touch_samples.iter().map(|(_, y)| *y as u32).sum();
+                    let count = self.touch_samples.len() as u32;
+
+                    let avg_x = (sum_x / count) as u16;
+                    let avg_y = (sum_y / count) as u16;
+
+                    self.pts[self.count] = (avg_x, avg_y);
+                    self.count += 1;
+                    self.step = match self.step {
+                        CalibrationStep::TopLeft => CalibrationStep::TopRight,
+                        CalibrationStep::TopRight => CalibrationStep::BottomRight,
+                        CalibrationStep::BottomRight => CalibrationStep::BottomLeft,
+                        CalibrationStep::BottomLeft => CalibrationStep::Done,
+                        CalibrationStep::Done => CalibrationStep::Done,
+                    };
+                    if let CalibrationStep::Done = self.step {
+                        self.finalize();
+                        if self.error.is_some() {
+                            // Reset to try again
+                            self.step = CalibrationStep::TopLeft;
+                            self.count = 0;
+                        }
+                    }
                 }
             }
+
+            // Reset hold tracking
+            self.touch_start_time = None;
+            self.touch_start_pos = None;
+            self.hold_duration_ms = 0;
+            self.touch_samples.clear();
         }
     }
 
@@ -302,8 +331,8 @@ impl Calibration {
         let dx = (self.max_x as i32 - self.min_x as i32).max(1) as f32;
         let dy = (self.max_y as i32 - self.min_y as i32).max(1) as f32;
 
-        self.scale_x = (EXPECTED_MAX_X as f32) / dx;
-        self.scale_y = (EXPECTED_MAX_Y as f32) / dy;
+        self.scale_x = (CALIBRATED_MAX_X as f32) / dx;
+        self.scale_y = (CALIBRATED_MAX_Y as f32) / dy;
 
         self.error = None;
     }
@@ -313,31 +342,77 @@ impl Calibration {
         matches!(self.step, CalibrationStep::Done)
     }
 
+    fn get_hold_progress(&self) -> f32 {
+        const REQUIRED_HOLD_MS: u128 = 1000;
+        if self.is_touching && self.hold_duration_ms > 0 {
+            (self.hold_duration_ms as f32 / REQUIRED_HOLD_MS as f32).min(1.0)
+        } else {
+            0.0
+        }
+    }
+
+    fn is_hold_complete(&self) -> bool {
+        const REQUIRED_HOLD_MS: u128 = 1000;
+        self.is_touching && self.hold_duration_ms >= REQUIRED_HOLD_MS
+    }
+
+    fn update_hold_duration(&mut self) {
+        // Update hold duration based on current time
+        if self.is_touching {
+            if let Some(start_time) = self.touch_start_time {
+                let current_time = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis();
+                self.hold_duration_ms = current_time.saturating_sub(start_time);
+            }
+        }
+    }
+
     #[inline]
     fn map(&self, raw_x: u16, raw_y: u16) -> (u16, u16) {
         let nx = ((raw_x as i32 - self.min_x as i32) as f32 * self.scale_x)
-            .clamp(0.0, EXPECTED_MAX_X as f32);
+            .clamp(0.0, CALIBRATED_MAX_X as f32);
         let ny = ((raw_y as i32 - self.min_y as i32) as f32 * self.scale_y)
-            .clamp(0.0, EXPECTED_MAX_Y as f32);
+            .clamp(0.0, CALIBRATED_MAX_Y as f32);
 
         let mut x = nx as u16;
         let mut y = ny as u16;
 
         if self.invert_x {
-            x = EXPECTED_MAX_X.saturating_sub(x);
+            x = CALIBRATED_MAX_X.saturating_sub(x);
         }
         if self.invert_y {
-            y = EXPECTED_MAX_Y.saturating_sub(y);
+            y = CALIBRATED_MAX_Y.saturating_sub(y);
         }
         (x, y)
     }
+}
 
-    fn progress(&self) -> (usize, usize) {
-        (self.count + 1, 4)
+#[derive(Clone)]
+struct TouchPoint {
+    x: u16,
+    y: u16,
+    timestamp: u128, // Changed to u128 to match SystemTime milliseconds
+}
+
+struct TouchStatistics {
+    max_jump: f32,
+    total_jumps: u32,
+    total_samples: u32,
+}
+
+impl TouchStatistics {
+    fn new() -> Self {
+        Self {
+            max_jump: 0.0,
+            total_jumps: 0,
+            total_samples: 0,
+        }
     }
 
-    pub fn points_visual(&self) -> Option<Vec<(f64, f64)>> {
-        None
+    fn reset(&mut self) {
+        *self = Self::new();
     }
 }
 
@@ -346,6 +421,12 @@ pub struct TouchscreenTestScreen {
     last_touch: Option<AppEvent>,
     calibration: Calibration,
     touching_idx: Option<usize>,
+
+    // New high-precision features
+    trail: VecDeque<TouchPoint>,
+    current_touch: Option<TouchPoint>,
+    statistics: TouchStatistics,
+    last_position: Option<(u16, u16)>,
 }
 
 impl TouchscreenTestScreen {
@@ -360,6 +441,10 @@ impl TouchscreenTestScreen {
             last_touch: None,
             calibration: Calibration::new(),
             touching_idx: None,
+            trail: VecDeque::with_capacity(MAX_TRAIL_LENGTH),
+            current_touch: None,
+            statistics: TouchStatistics::new(),
+            last_position: None,
         }
     }
 
@@ -369,120 +454,17 @@ impl TouchscreenTestScreen {
             self.calibration.map(x, y)
         } else {
             // During calibration just clamp to logical space so header can display something sane
-            (x.min(EXPECTED_MAX_X), y.min(EXPECTED_MAX_Y))
+            (x.min(CALIBRATED_MAX_X), y.min(CALIBRATED_MAX_Y))
         }
     }
 
     fn mark(&mut self, x: u16, y: u16) {
-        let col = (x * COLS / EXPECTED_MAX_X).min(COLS - 1);
-        let row = (y * ROWS / EXPECTED_MAX_Y).min(ROWS - 1);
+        let col = (x * COLS / CALIBRATED_MAX_X).min(COLS - 1);
+        let row = (y * ROWS / CALIBRATED_MAX_Y).min(ROWS - 1);
 
         let index = self.idx(col as usize, row as usize);
         if index < self.is_touched.len() {
             self.is_touched[index] = true;
-        }
-    }
-
-    fn coverage_ratio(&self) -> f32 {
-        let touched = self.is_touched.iter().filter(|&&c| c).count() as f32;
-        touched / (self.is_touched.len() as f32)
-    }
-
-    fn draw_header(&self, frame: &mut Frame, area: Rect) {
-        let mut text = vec![];
-
-        let mode_text = if self.calibration.is_done() {
-            let coverage_percent = (self.coverage_ratio() * 100.0).round() as u8;
-            format!("Coverage: {}%", coverage_percent).into()
-        } else {
-            let (n, d) = self.calibration.progress();
-            format!("Calibrating.. {} ({}/{})", self.calibration.prompt(), n, d)
-        };
-
-        text.push(mode_text.bold().cyan());
-
-        text.push(" | ".into());
-        text.push(
-            match &self.last_touch {
-                Some(AppEvent::Touch { x, y, .. }) => {
-                    format!("Last touch: ({}, {})", x, y)
-                }
-                _ => "No touch registered".to_string(),
-            }
-            .gray(),
-        );
-
-        if let Some(err) = &self.calibration.error {
-            text.push(" | ".into());
-            text.push(err.clone().bold().red());
-        }
-
-        let title = Line::from(text);
-
-        let p = Paragraph::new(title).block(Block::bordered());
-        frame.render_widget(p, area);
-    }
-    fn draw_footer(&self, frame: &mut Frame, area: Rect) {
-        let footer = Line::from(vec![
-            "Press ".into(),
-            "Q/Esc".bold().yellow(),
-            " to quit.".into(),
-        ])
-        .centered();
-
-        frame.render_widget(footer, area);
-    }
-
-    fn draw_touchmap(&self, frame: &mut Frame, area: Rect) {
-        if area.width < COLS || area.height < ROWS {
-            return;
-        }
-
-        let cell_width = area.width / COLS;
-        let cell_height = area.height / ROWS;
-
-        let vertical_chunks = Layout::vertical([
-            Constraint::Min(0),
-            Constraint::Length(cell_height * ROWS),
-            Constraint::Min(0),
-        ])
-        .split(area);
-
-        let horizontal_chunks = Layout::horizontal([
-            Constraint::Min(0),
-            Constraint::Length(cell_width * COLS),
-            Constraint::Min(0),
-        ])
-        .split(vertical_chunks[1]);
-
-        let touchmap_area = horizontal_chunks[1];
-
-        for row in 0..ROWS {
-            for col in 0..COLS {
-                let x = touchmap_area.x + col * cell_width;
-                let y = touchmap_area.y + row * cell_height;
-                let is_touched = self.is_touched[self.idx(col as usize, row as usize)];
-
-                let bg = if is_touched {
-                    if Some(self.idx(col as usize, row as usize)) == self.touching_idx {
-                        Color::LightRed
-                    } else {
-                        Color::Green
-                    }
-                } else {
-                    Color::Gray
-                };
-
-                let style = Style::default().bg(bg);
-                let line = " ".repeat(cell_width as usize);
-                let rect = Rect {
-                    x,
-                    y,
-                    width: cell_width,
-                    height: cell_height,
-                };
-                frame.render_widget(Paragraph::new(line.as_str()).style(style), rect);
-            }
         }
     }
 
@@ -496,18 +478,62 @@ impl TouchscreenTestScreen {
         {
             if self.calibration.is_done() {
                 let (mx, my) = self.map_raw(x, y);
+
+                // Update statistics
+                self.statistics.total_samples += 1;
+
+                // Detect jumps
+                if let Some((last_x, last_y)) = self.last_position {
+                    let dx = mx as f32 - last_x as f32;
+                    let dy = my as f32 - last_y as f32;
+                    let distance = (dx * dx + dy * dy).sqrt();
+
+                    if distance > JUMP_THRESHOLD {
+                        self.statistics.total_jumps += 1;
+                        self.statistics.max_jump = self.statistics.max_jump.max(distance);
+                    }
+                }
+
+                if released {
+                    self.current_touch = None;
+                    self.last_position = None;
+                } else {
+                    // Update current touch position and add to trail
+                    let current_time = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis();
+
+                    let point = TouchPoint {
+                        x: mx,
+                        y: my,
+                        timestamp: current_time,
+                    };
+
+                    // Add to trail on each touch event
+                    self.trail.push_back(point.clone());
+                    if self.trail.len() > MAX_TRAIL_LENGTH {
+                        self.trail.pop_front();
+                    }
+
+                    self.current_touch = Some(point);
+                    self.last_position = Some((mx, my));
+                }
+
+                // Legacy grid marking
                 self.mark(mx, my);
                 if released {
                     self.touching_idx = None;
                 } else {
-                    let col = (mx * COLS / EXPECTED_MAX_X).min(COLS - 1);
-                    let row = (my * ROWS / EXPECTED_MAX_Y).min(ROWS - 1);
+                    let col = (mx * COLS / CALIBRATED_MAX_X).min(COLS - 1);
+                    let row = (my * ROWS / CALIBRATED_MAX_Y).min(ROWS - 1);
                     let index = self.idx(col as usize, row as usize);
                     self.touching_idx = Some(index);
                 }
+
                 self.last_touch = Some(AppEvent::Touch {
-                    x: x,
-                    y: y,
+                    x,
+                    y,
                     timestamp,
                     released,
                 });
@@ -520,140 +546,339 @@ impl TouchscreenTestScreen {
 
     fn draw_calibration(&self, f: &mut Frame) {
         let area = f.area();
-        let chunks = Layout::vertical([
-            Constraint::Length(3),
-            Constraint::Min(5),
-            Constraint::Length(1),
-        ])
-        .split(area);
 
-        // Header
-        let mut header_spans = vec![
-            Span::styled(
-                " Touchscreen calibration ",
-                Style::default().fg(Color::Cyan).bold(),
-            ),
-            Span::raw(" – press "),
-            Span::styled("Q/Esc", Style::default().fg(Color::Yellow).bold()),
-            Span::raw(" to exit"),
+        // Fill entire screen with canvas (like the test screen)
+        let w = area.width;
+        let h = area.height;
+        let mut ac = AsciiCanvas::new(w, h);
+
+        // Determine which corner to highlight
+        use CalibrationStep::*;
+        let (target_x, target_y) = match self.calibration.step {
+            TopLeft => (0i32, 0i32),
+            TopRight => ((w - 1) as i32, 0i32),
+            BottomRight => ((w - 1) as i32, (h - 1) as i32),
+            BottomLeft => (0i32, (h - 1) as i32),
+            Done => (w as i32 / 2, h as i32 / 2), // Center if done
+        };
+
+        // Draw arrow from center to the target corner (only if not done)
+        if self.calibration.step != Done {
+            let cx = (w as i32) / 2;
+            let cy = (h as i32) / 2;
+            ac.arrow(cx, cy, target_x, target_y, '*');
+        }
+
+        // Draw large corner marker at the target corner (after arrow so it overlays)
+        if self.calibration.step != Done {
+            let size = 7i32;
+            for dx in -size..=size {
+                ac.put(target_x + dx, target_y, '═');
+            }
+            for dy in -size..=size {
+                ac.put(target_x, target_y + dy, '║');
+            }
+            ac.put(target_x, target_y, '╬');
+        }
+
+        // Render the full-screen canvas
+        let canvas_widget =
+            Paragraph::new(ac.to_text()).style(Style::default().bg(Color::Black).fg(Color::White));
+        f.render_widget(canvas_widget, area);
+
+        // Overlay instruction box at top center
+        let msg = match self.calibration.step {
+            Done => "Calibration complete!",
+            TopLeft => "Touch the TOP-LEFT corner of your screen",
+            TopRight => "Touch the TOP-RIGHT corner of your screen",
+            BottomRight => "Touch the BOTTOM-RIGHT corner of your screen",
+            BottomLeft => "Touch the BOTTOM-LEFT corner of your screen",
+        };
+
+        let mut info_lines = vec![
+            Line::from(vec![Span::styled(
+                "Touchscreen Calibration",
+                Style::default().bold().cyan(),
+            )])
+            .centered(),
+            Line::from(""),
+            Line::from(msg).centered().bold().yellow(),
+            Line::from(""),
         ];
+
+        // Show hold progress if touching
+        let hold_progress = self.calibration.get_hold_progress();
+        let hold_complete = self.calibration.is_hold_complete();
+
+        if hold_complete {
+            // Timer complete - show "Release" message
+            info_lines.push(
+                Line::from(vec![
+                    Span::styled(">>> RELEASE NOW <<<", Style::default().bold().green()),
+                ])
+                .centered(),
+            );
+            info_lines.push(Line::from(""));
+        } else if hold_progress > 0.0 {
+            // Still holding - show progress bar
+            let progress_pct = (hold_progress * 100.0) as u8;
+            let bar_width = 30;
+            let filled = ((hold_progress * bar_width as f32) as usize).min(bar_width);
+            let empty = bar_width - filled;
+
+            let progress_bar = format!(
+                "[{}{}] {}%",
+                "█".repeat(filled),
+                "░".repeat(empty),
+                progress_pct
+            );
+
+            info_lines.push(
+                Line::from(vec![
+                    Span::styled("Hold: ", Style::default().bold()),
+                    Span::styled(progress_bar, Style::default().yellow()),
+                ])
+                .centered(),
+            );
+            info_lines.push(Line::from(""));
+        } else {
+            // Not holding - keep space reserved so the box doesn't resize
+            info_lines.push(Line::from(""));
+            info_lines.push(Line::from(""));
+        }
+
+        info_lines.push(
+            Line::from(vec![Span::styled(
+                "Touch and HOLD for 1 second ",
+                Style::default(),
+            )])
+            .centered(),
+        );
+        info_lines.push(
+            Line::from(vec![
+                Span::styled("Touch the ", Style::default()),
+                Span::styled("EDGE OF THE SCREEN", Style::default().bold().yellow()),
+            ])
+            .centered(),
+        );
+        info_lines.push(
+            Line::from("Touch as close to the physical screen edge as possible")
+                .centered()
+                .gray(),
+        );
+
+        // Show error if present
+        if let Some(err) = &self.calibration.error {
+            info_lines.push(Line::from(""));
+            info_lines.push(
+                Line::from(vec![
+                    Span::styled("Error: ", Style::default().bold().red()),
+                    Span::styled(err.clone(), Style::default().red()),
+                ])
+                .centered(),
+            );
+        }
 
         // Show touch coordinates if there's an error
         if self.calibration.error.is_some() {
             if let Some(AppEvent::Touch { x, y, .. }) = &self.last_touch {
-                header_spans.push(Span::raw(" | Touch: "));
-                header_spans.push(Span::styled(
-                    format!("({}, {})", x, y),
-                    Style::default().fg(Color::Yellow),
-                ));
+                info_lines.push(
+                    Line::from(vec![
+                        Span::raw("Touch: "),
+                        Span::styled(format!("({}, {})", x, y), Style::default().yellow()),
+                    ])
+                    .centered(),
+                );
             }
         }
 
-        // Show error message
-        if let Some(err) = &self.calibration.error {
-            header_spans.push(Span::raw(" | "));
-            header_spans.push(Span::styled(
-                err.clone(),
-                Style::default().fg(Color::Red).bold(),
-            ));
-        }
+        info_lines.push(Line::from(""));
+        info_lines.push(
+            Line::from(vec![
+                Span::styled("Q/Esc", Style::default().bold().yellow()),
+                Span::raw(" to exit"),
+            ])
+            .centered(),
+        );
 
-        let header = Paragraph::new(Line::from(header_spans))
-            .centered()
-            .block(Block::bordered().title("Touchscreen"));
-        f.render_widget(header, chunks[0]);
+        let info_height = info_lines.len() as u16 + 2;
+        let info_width = 60u16.min(area.width - 4);
 
-        // Footer
-        let footer =
-            Paragraph::new("Touch the glowing corner. Arrows show where to tap next.").centered();
-        f.render_widget(footer, chunks[2]);
-
-        // Active corner index based on your state
-        use CalibrationStep::*;
-        let active = match self.calibration.step {
-            TopLeft => 0,
-            TopRight => 1,
-            BottomRight => 2,
-            BottomLeft => 3,
-            Done => usize::MAX,
+        let info_rect = Rect {
+            x: (area.width.saturating_sub(info_width)) / 2,
+            y: 1,
+            width: info_width,
+            height: info_height,
         };
 
-        // Build ASCII scene inside the middle chunk
-        let w = chunks[1].width.saturating_sub(2).max(10);
-        let h = chunks[1].height.saturating_sub(2).max(6);
-        let mut ac = AsciiCanvas::new(w, h);
+        let info_widget = Paragraph::new(info_lines)
+            .block(Block::bordered())
+            .style(Style::default().bg(Color::Black).fg(Color::White));
 
-        // Geometry (local to chunk)
-        let cx = (w as i32) / 2;
-        let cy = (h as i32) / 2;
-        let margin = 2i32;
-        let corners = [
-            (margin, margin),                                   // TL
-            ((w as i32) - 1 - margin, margin),                  // TR
-            ((w as i32) - 1 - margin, (h as i32) - 1 - margin), // BR
-            (margin, (h as i32) - 1 - margin),                  // BL
-        ];
-
-        // Arrows: active corner gets arrow made of '*' (more visible), others '-'
-        for (i, &(tx, ty)) in corners.iter().enumerate() {
-            let shaft = if i == active { '*' } else { '-' };
-            ac.arrow(cx, cy, tx, ty, shaft);
-        }
-
-        // Crosshairs: active is stronger/larger
-        for (i, &(tx, ty)) in corners.iter().enumerate() {
-            let strong = i == active;
-            let size = if strong { 3 } else { 2 };
-            ac.crosshair(tx, ty, size, strong);
-            // tiny target dot
-            ac.put(tx, ty, if strong { 'X' } else { '+' });
-        }
-
-        // Optional: show user taps if you have them
-        if let Some(points) = self.calibration.points_visual() {
-            for (x, y) in points {
-                // map to local coords if needed; here we assume already local (0..w, 0..h)
-                ac.put(x as i32, y as i32, 'o');
-            }
-        }
-
-        // Center message (ASCII only; styled via Paragraph on top)
-        let msg = match self.calibration.step {
-            Done => "Calibration complete!",
-            _ => "Touch the highlighted corner to calibrate",
-        };
-
-        let field = Paragraph::new(ac.to_text()).block(Block::bordered().title("Calibrate"));
-        f.render_widget(field, chunks[1]);
-
-        // Overlay centered instruction (kept ASCII-friendly)
-        let msg_box_w = (msg.len() as u16 + 6).min(chunks[1].width.saturating_sub(4));
-        let msg_box_h = 3u16;
-        let instr_rect = Rect {
-            x: chunks[1].x + (chunks[1].width.saturating_sub(msg_box_w)) / 2,
-            y: chunks[1].y + chunks[1].height / 2 - msg_box_h / 2,
-            width: msg_box_w,
-            height: msg_box_h,
-        };
-        let instr = Paragraph::new(Text::from(msg))
-            .centered()
-            .block(Block::bordered().title("Instructions"));
-        f.render_widget(instr, instr_rect);
+        f.render_widget(info_widget, info_rect);
     }
 
     fn draw_test(&self, f: &mut Frame) {
-        let chunks = Layout::vertical([
-            Constraint::Length(3),
-            Constraint::Min(5),
-            Constraint::Length(1),
-        ])
-        .split(f.area());
+        // Draw canvas filling the ENTIRE screen first
+        self.draw_high_precision_canvas(f, f.area());
 
-        self.draw_header(f, chunks[0]);
+        // Overlay UI elements on top of the canvas
+        self.draw_overlay_ui(f);
+    }
 
-        self.draw_touchmap(f, chunks[1]);
+    fn draw_overlay_ui(&self, f: &mut Frame) {
+        let area = f.area();
 
-        self.draw_footer(f, chunks[2]);
+        // Create a small info box in the top-center
+        let info_width = 50u16.min(area.width - 4);
+        let info_height = 8u16.min(area.height / 3);
+
+        let info_rect = Rect {
+            x: (area.width.saturating_sub(info_width)) / 2,
+            y: 1,
+            width: info_width,
+            height: info_height,
+        };
+
+        let mut lines = vec![];
+
+        // Current touch info
+        if let Some(ref touch) = self.current_touch {
+            lines.push(Line::from(vec![
+                "Touch: ".bold(),
+                format!("({},{}) ", touch.x, touch.y).green(),
+            ]));
+        } else {
+            lines.push(Line::from("Touch the screen...".gray()));
+        }
+
+        lines.push(Line::from(""));
+
+        // Statistics
+        lines.push(Line::from(vec![
+            "Samples: ".into(),
+            format!("{}  ", self.statistics.total_samples).yellow(),
+            "Jumps: ".into(),
+            format!("{} ", self.statistics.total_jumps).red(),
+        ]));
+
+        // Controls
+        lines.push(Line::from(vec![
+            "R".bold().yellow(),
+            ":Reset ".into(),
+            "C".bold().yellow(),
+            ":Clear ".into(),
+            "T".bold().yellow(),
+            ":Recalibrate ".into(),
+            "Q".bold().yellow(),
+            ":Quit".into(),
+        ]));
+
+        let info_widget = Paragraph::new(lines)
+            .block(Block::bordered().title("Touch Test"))
+            .style(Style::default().bg(Color::Black).fg(Color::White));
+
+        f.render_widget(info_widget, info_rect);
+    }
+
+    fn draw_high_precision_canvas(&self, frame: &mut Frame, area: Rect) {
+        // Use the ENTIRE area - no borders, no centering
+        // This ensures the canvas size matches where you actually touch
+        let canvas_w = area.width;
+        let canvas_h = area.height;
+
+        let mut canvas = vec![vec![' '; canvas_w as usize]; canvas_h as usize];
+
+        // Draw corner markers to show calibrated area
+        // Top-left
+        if canvas_w > 2 && canvas_h > 2 {
+            canvas[0][0] = '┌';
+            canvas[0][1] = '─';
+            canvas[1][0] = '│';
+
+            // Top-right
+            let tr_x = (canvas_w - 1) as usize;
+            canvas[0][tr_x] = '┐';
+            canvas[0][tr_x - 1] = '─';
+            canvas[1][tr_x] = '│';
+
+            // Bottom-left
+            let br_y = (canvas_h - 1) as usize;
+            canvas[br_y][0] = '└';
+            canvas[br_y][1] = '─';
+            canvas[br_y - 1][0] = '│';
+
+            // Bottom-right
+            canvas[br_y][tr_x] = '┘';
+            canvas[br_y][tr_x - 1] = '─';
+            canvas[br_y - 1][tr_x] = '│';
+        }
+
+        // Draw trail with fading
+        let trail_len = self.trail.len();
+        for (i, point) in self.trail.iter().enumerate() {
+            let x = ((point.x as f32 / CALIBRATED_MAX_X as f32 * (canvas_w - 1) as f32) as usize)
+                .min(canvas_w as usize - 1);
+            let y = ((point.y as f32 / CALIBRATED_MAX_Y as f32 * (canvas_h - 1) as f32) as usize)
+                .min(canvas_h as usize - 1);
+
+            if x < canvas_w as usize && y < canvas_h as usize {
+                // Fade trail: older points use lighter characters
+                let age_ratio = i as f32 / trail_len as f32;
+                let ch = if age_ratio > 0.8 {
+                    'O' // Recent
+                } else if age_ratio > 0.5 {
+                    'o'
+                } else {
+                    '.' // Old
+                };
+                canvas[y][x] = ch;
+            }
+        }
+
+        // Draw current touch with crosshair
+        if let Some(ref touch) = self.current_touch {
+            let cx = ((touch.x as f32 / CALIBRATED_MAX_X as f32 * (canvas_w - 1) as f32) as i32)
+                .min(canvas_w as i32 - 1)
+                .max(0);
+            let cy = ((touch.y as f32 / CALIBRATED_MAX_Y as f32 * (canvas_h - 1) as f32) as i32)
+                .min(canvas_h as i32 - 1)
+                .max(0);
+
+            // Ensure center point is within bounds
+            if cx >= 0 && cx < canvas_w as i32 && cy >= 0 && cy < canvas_h as i32 {
+                // Draw crosshair
+                let size = 3i32;
+                for dx in -size..=size {
+                    let x = cx + dx;
+                    if x >= 0 && x < canvas_w as i32 && cy >= 0 && cy < canvas_h as i32 {
+                        canvas[cy as usize][x as usize] = '─';
+                    }
+                }
+                for dy in -size..=size {
+                    let y = cy + dy;
+                    if y >= 0 && y < canvas_h as i32 && cx >= 0 && cx < canvas_w as i32 {
+                        canvas[y as usize][cx as usize] = '│';
+                    }
+                }
+                // Center marker
+                canvas[cy as usize][cx as usize] = '┼';
+            }
+        }
+
+        // Convert canvas to string
+        let canvas_text: String = canvas
+            .iter()
+            .map(|row| row.iter().collect::<String>())
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        let style = Style::default().bg(Color::Black).fg(Color::White);
+
+        // No border - use full area so touch position matches visual position
+        let canvas_widget = Paragraph::new(canvas_text).style(style);
+
+        frame.render_widget(canvas_widget, area);
     }
 }
 
@@ -678,6 +903,39 @@ impl Screen for TouchscreenTestScreen {
             AppEvent::Key { code, .. } => {
                 if code == KeyCode::KEY_Q || code == KeyCode::KEY_ESC {
                     return Nav::To(ScreenId::Home);
+                } else if code == KeyCode::KEY_R && self.calibration.is_done() {
+                    // Reset statistics
+                    self.statistics.reset();
+                } else if code == KeyCode::KEY_C && self.calibration.is_done() {
+                    // Clear trail
+                    self.trail.clear();
+                } else if code == KeyCode::KEY_T {
+                    // Recalibrate - reset calibration to start over
+                    self.calibration = Calibration::new();
+                    self.trail.clear();
+                    self.statistics.reset();
+                    self.current_touch = None;
+                    self.last_position = None;
+                }
+            }
+            AppEvent::Tick => {
+                // Update calibration hold duration on each tick
+                if !self.calibration.is_done() {
+                    self.calibration.update_hold_duration();
+                } else {
+                    // Remove old trail points based on time
+                    let current_time = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis();
+
+                    while let Some(front) = self.trail.front() {
+                        if current_time.saturating_sub(front.timestamp) > TRAIL_LIFETIME_MS {
+                            self.trail.pop_front();
+                        } else {
+                            break;
+                        }
+                    }
                 }
             }
             _ => {}

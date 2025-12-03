@@ -33,6 +33,7 @@ pub enum AppEvent {
         timestamp: u128,
         released: bool,
     },
+    Tick,
 }
 
 pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> Result<()> {
@@ -65,6 +66,15 @@ pub fn spawn_device_listeners(tx: &Sender<AppEvent>) -> Result<()> {
 
     let tx_clone = tx.clone();
     let _ = serial_touch::spawn_reader(tx_clone);
+
+    // Spawn timer thread for regular UI updates (needed for hold progress during calibration)
+    let tx_timer = tx.clone();
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_millis(100)); // 10 times per second
+            let _ = tx_timer.send(AppEvent::Tick);
+        }
+    });
 
     Ok(())
 }

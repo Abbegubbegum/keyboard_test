@@ -8,6 +8,15 @@ pub type KeyboardLayout = &'static [&'static [KeyLayout]];
 
 const DATOR_BB_FÄLT_OLD_LAYOUT: KeyboardLayout = &[&[&[
     &[
+        ("F1", &[KeyCode::KEY_F1]),
+        ("F2", &[KeyCode::KEY_F2]),
+        ("F3", &[KeyCode::KEY_F3]),
+        ("F4", &[KeyCode::KEY_F4]),
+        ("F5", &[KeyCode::KEY_F5]),
+        ("F6", &[KeyCode::KEY_F6]),
+        ("Sleep", &[KeyCode::KEY_SLEEP]),
+    ],
+    &[
         ("ESC", &[KeyCode::KEY_ESC]),
         ("F1", &[KeyCode::KEY_F1]),
         ("F2", &[KeyCode::KEY_F2]),
@@ -105,10 +114,6 @@ const DATOR_BB_FÄLT_OLD_LAYOUT: KeyboardLayout = &[&[&[
         ("←", &[KeyCode::KEY_LEFT]),
         ("↓", &[KeyCode::KEY_DOWN]),
         ("→", &[KeyCode::KEY_RIGHT]),
-    ],
-    &[
-        ("Mouse Left", &[KeyCode::BTN_LEFT]),
-        ("Mouse Right", &[KeyCode::BTN_RIGHT]),
     ],
 ]]];
 
