@@ -14,6 +14,8 @@ use crate::serial_touch;
 pub struct DeviceInfo {
     pub path: String,
     pub name: String,
+    pub abs_x_max: Option<i32>,
+    pub abs_y_max: Option<i32>,
 }
 
 #[derive(Debug)]
@@ -90,9 +92,12 @@ fn spawn_device_listener(
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(100)); // Allow some stagger time
 
-        // USB touchscreen state tracking
+        // USB touchscreen/stylus state tracking
         let mut touch_x: u16 = 0;
         let mut touch_y: u16 = 0;
+        let mut is_touching: bool = false; // Track whether stylus/finger is actually touching
+        let mut tool_in_range: bool = false; // Track whether tool (pen/finger) is in range
+        let mut coords_updated: bool = false; // Track if coordinates were updated in this event batch
 
         loop {
             match dev.fetch_events() {
@@ -100,29 +105,74 @@ fn spawn_device_listener(
                     for event in events {
                         match event.destructure() {
                             EventSummary::Key(_, code, value) => {
-                                // Handle BTN_TOUCH for USB touchscreens
-                                if code == KeyCode::BTN_TOUCH {
-                                    _ = tx.send(get_touch_event(touch_x, touch_y, value == 0, Some(info.clone())));
-                                } else if value == 1 {
-                                    // Regular key press
-                                    _ = tx.send(AppEvent::Key {
-                                        code,
-                                        info: info.clone(),
-                                    });
+                                // Handle various touch/stylus button codes
+                                match code {
+                                    // BTN_TOUCH: Actual contact with surface (both finger and stylus)
+                                    KeyCode::BTN_TOUCH => {
+                                        is_touching = value != 0;
+                                        if !is_touching && tool_in_range {
+                                            // Released but tool still in range - send release event
+                                            _ = tx.send(get_touch_event(
+                                                touch_x,
+                                                touch_y,
+                                                true,
+                                                Some(info.clone()),
+                                            ));
+                                        }
+                                    }
+                                    // BTN_TOOL_PEN, BTN_TOOL_FINGER: Tool in range but not necessarily touching
+                                    KeyCode::BTN_TOOL_PEN | KeyCode::BTN_TOOL_FINGER => {
+                                        tool_in_range = value != 0;
+                                        if !tool_in_range && is_touching {
+                                            // Tool left range - send release event
+                                            is_touching = false;
+                                            _ = tx.send(get_touch_event(
+                                                touch_x,
+                                                touch_y,
+                                                true,
+                                                Some(info.clone()),
+                                            ));
+                                        }
+                                    }
+                                    // Regular key presses (only on press, not release)
+                                    _ => {
+                                        if value == 1 {
+                                            _ = tx.send(AppEvent::Key {
+                                                code,
+                                                info: info.clone(),
+                                            });
+                                        }
+                                    }
                                 }
                             }
-                            // Handle USB touchscreen absolute axis events
+                            // Handle USB touchscreen/stylus absolute axis events
                             EventSummary::AbsoluteAxis(_, abs_code, value) => match abs_code {
                                 evdev::AbsoluteAxisCode::ABS_X => {
                                     touch_x = value as u16;
-                                    _ = tx.send(get_touch_event(touch_x, touch_y, false, Some(info.clone())));
+                                    coords_updated = true;
                                 }
                                 evdev::AbsoluteAxisCode::ABS_Y => {
                                     touch_y = value as u16;
-                                    _ = tx.send(get_touch_event(touch_x, touch_y, false, Some(info.clone())));
+                                    coords_updated = true;
                                 }
+                                // Ignore other axis events (pressure, tilt, etc.)
                                 _ => {}
                             },
+                            // EV_SYN marks the end of a complete event frame
+                            EventSummary::Synchronization(_, sync_code, _) => {
+                                if sync_code == evdev::SynchronizationCode::SYN_REPORT {
+                                    // Send touch event only once per complete frame, if coordinates changed
+                                    if is_touching && coords_updated {
+                                        _ = tx.send(get_touch_event(
+                                            touch_x,
+                                            touch_y,
+                                            false,
+                                            Some(info.clone()),
+                                        ));
+                                        coords_updated = false;
+                                    }
+                                }
+                            }
                             // Handle mouse movement events
                             EventSummary::RelativeAxis(_, rel_code, value) => {
                                 if rel_code == evdev::RelativeAxisCode::REL_X {
@@ -235,11 +285,26 @@ fn get_devices() -> Vec<(Device, DeviceInfo)> {
             Ok(device) => {
                 let name = device.name().unwrap_or("Unknown").to_string();
 
+                // Query absolute axis information for touchscreens/touchpads
+                let abs_x_max = device.get_abs_state().ok().and_then(|abs_state| {
+                    abs_state
+                        .get(evdev::AbsoluteAxisCode::ABS_X.0 as usize)
+                        .map(|info| info.maximum)
+                });
+
+                let abs_y_max = device.get_abs_state().ok().and_then(|abs_state| {
+                    abs_state
+                        .get(evdev::AbsoluteAxisCode::ABS_Y.0 as usize)
+                        .map(|info| info.maximum)
+                });
+
                 devices.push((
                     device,
                     DeviceInfo {
                         path: entry.path().to_string_lossy().to_string(),
                         name,
+                        abs_x_max,
+                        abs_y_max,
                     },
                 ))
             }

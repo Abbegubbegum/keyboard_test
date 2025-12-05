@@ -388,6 +388,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4c7245a08504955605670dbf141fceab975f15ca21570696aebe9d2e71576bd"
 
 [[package]]
+name = "input_device_test"
+version = "1.0.0"
+dependencies = [
+ "color-eyre",
+ "crossbeam-channel",
+ "crossterm 0.29.0",
+ "evdev",
+ "once_cell",
+ "ratatui",
+ "serialport",
+]
+
+[[package]]
 name = "instability"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -424,19 +437,6 @@ name = "itoa"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
-
-[[package]]
-name = "keyboard_test"
-version = "0.1.0"
-dependencies = [
- "color-eyre",
- "crossbeam-channel",
- "crossterm 0.29.0",
- "evdev",
- "once_cell",
- "ratatui",
- "serialport",
-]
 
 [[package]]
 name = "lazy_static"

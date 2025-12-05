@@ -8,5 +8,5 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-cp target/x86_64-unknown-linux-musl/release/keyboard_test build/keyboard_test_x86_64
-cp target/i686-unknown-linux-musl/release/keyboard_test build/keyboard_test_i686
+cp target/x86_64-unknown-linux-musl/release/input_device_test build/input_device_test_x86_64
+cp target/i686-unknown-linux-musl/release/input_device_test build/input_device_test_i686

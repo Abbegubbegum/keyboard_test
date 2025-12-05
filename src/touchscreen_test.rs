@@ -141,9 +141,7 @@ struct Calibration {
     available_devices: Vec<DeviceInfo>,
     selected_device_index: usize,
     selected_device_path: Option<String>,
-
-    // Track maximum coordinates seen for adaptive tolerance
-    max_observed_coord: u16,
+    selected_device_info: Option<DeviceInfo>,
 }
 
 impl Calibration {
@@ -169,7 +167,7 @@ impl Calibration {
             available_devices: Vec::new(),
             selected_device_index: 0,
             selected_device_path: None,
-            max_observed_coord: 0,
+            selected_device_info: None,
         }
     }
 
@@ -187,15 +185,12 @@ impl Calibration {
             }
 
             const REQUIRED_HOLD_MS: u128 = 1000; // 1 second
-            const MOVEMENT_TOLERANCE_PERCENT: f32 = 0.025; // 2.5% of max observed coordinate
-            const MIN_TOLERANCE: u16 = 100; // Minimum tolerance for low-res or first touches
+            const MOVEMENT_TOLERANCE_PERCENT: f32 = 0.025; // 2.5% of device max coordinate
+            const MIN_TOLERANCE: i32 = 100; // Minimum tolerance fallback
 
             if !released {
                 // Touch started or continuing
                 self.is_touching = true;
-
-                // Update max observed coordinate
-                self.max_observed_coord = self.max_observed_coord.max(*x).max(*y);
 
                 if self.touch_start_time.is_none() {
                     // First touch - record start time and position using system time
@@ -214,14 +209,14 @@ impl Calibration {
                         let dx = (*x as i32 - start_x as i32).abs();
                         let dy = (*y as i32 - start_y as i32).abs();
 
-                        // Calculate adaptive threshold based on the maximum coordinate observed across all touches
-                        // This works for both low-res (1000x1000) and high-res (8500x5412) touchpads
-                        // Use the max observed coordinate across the entire calibration, not just current touch
-                        let max_movement = if self.max_observed_coord > 500 {
-                            ((self.max_observed_coord as f32) * MOVEMENT_TOLERANCE_PERCENT)
-                                .max(MIN_TOLERANCE as f32) as i32
+                        // Calculate adaptive threshold based on device's reported maximum coordinates
+                        // This is much more reliable than observing coordinates during calibration
+                        let max_movement = if let Some(device_info) = &self.selected_device_info {
+                            // Use the larger of X or Y max, and apply percentage tolerance
+                            let device_max = device_info.abs_x_max.max(device_info.abs_y_max).unwrap_or(1000);
+                            ((device_max as f32) * MOVEMENT_TOLERANCE_PERCENT).max(MIN_TOLERANCE as f32) as i32
                         } else {
-                            MIN_TOLERANCE as i32 // Use minimum tolerance if we haven't seen large coordinates yet
+                            MIN_TOLERANCE // Fallback if device info not available
                         };
 
                         if dx > max_movement || dy > max_movement {
@@ -1096,6 +1091,7 @@ impl Screen for TouchscreenTestScreen {
                                 let selected = &self.calibration.available_devices
                                     [self.calibration.selected_device_index];
                                 self.calibration.selected_device_path = Some(selected.path.clone());
+                                self.calibration.selected_device_info = Some(selected.clone());
                                 self.calibration.step = CalibrationStep::TopLeft;
                             }
                         }
@@ -1125,6 +1121,7 @@ impl Screen for TouchscreenTestScreen {
                                 self.calibration.selected_device_index = idx;
                                 let selected = &self.calibration.available_devices[idx];
                                 self.calibration.selected_device_path = Some(selected.path.clone());
+                                self.calibration.selected_device_info = Some(selected.clone());
                                 self.calibration.step = CalibrationStep::TopLeft;
                             }
                         }
