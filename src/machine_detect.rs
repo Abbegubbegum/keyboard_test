@@ -16,10 +16,9 @@ pub enum ComputerModel {
 
 pub fn has_touchscreen() -> bool {
     match get_computer_model() {
-        ComputerModel::DatorBBFält => true,
-        ComputerModel::DatorBBFältGPS => true,
-        ComputerModel::DatorBBFältG2 => true,
-        _ => false,
+        ComputerModel::DatorBärbarCMBRF8 => false,
+        ComputerModel::DatorBärbarRS11 => false,
+        _ => true,
     }
 }
 
