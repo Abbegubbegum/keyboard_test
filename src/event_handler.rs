@@ -96,6 +96,7 @@ fn spawn_device_listener(
         let mut touch_x: u16 = 0;
         let mut touch_y: u16 = 0;
         let mut is_touching: bool = false; // Track whether stylus/finger is actually touching
+        #[allow(unused_assignments)]
         let mut tool_in_range: bool = false; // Track whether tool (pen/finger) is in range
         let mut coords_updated: bool = false; // Track if coordinates were updated in this event batch
 
@@ -110,8 +111,9 @@ fn spawn_device_listener(
                                     // BTN_TOUCH: Actual contact with surface (both finger and stylus)
                                     KeyCode::BTN_TOUCH => {
                                         is_touching = value != 0;
-                                        if !is_touching && tool_in_range {
-                                            // Released but tool still in range - send release event
+                                        if !is_touching {
+                                            // Released - send release event
+                                            // Note: Some devices send BTN_TOOL_* events, others don't
                                             _ = tx.send(get_touch_event(
                                                 touch_x,
                                                 touch_y,
