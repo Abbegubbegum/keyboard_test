@@ -32,6 +32,7 @@ pub enum AppEvent {
         y: u16,
         timestamp: u128,
         released: bool,
+        info: Option<DeviceInfo>,
     },
     Tick,
 }
@@ -101,7 +102,7 @@ fn spawn_device_listener(
                             EventSummary::Key(_, code, value) => {
                                 // Handle BTN_TOUCH for USB touchscreens
                                 if code == KeyCode::BTN_TOUCH {
-                                    _ = tx.send(get_touch_event(touch_x, touch_y, value == 0));
+                                    _ = tx.send(get_touch_event(touch_x, touch_y, value == 0, Some(info.clone())));
                                 } else if value == 1 {
                                     // Regular key press
                                     _ = tx.send(AppEvent::Key {
@@ -114,11 +115,11 @@ fn spawn_device_listener(
                             EventSummary::AbsoluteAxis(_, abs_code, value) => match abs_code {
                                 evdev::AbsoluteAxisCode::ABS_X => {
                                     touch_x = value as u16;
-                                    _ = tx.send(get_touch_event(touch_x, touch_y, false));
+                                    _ = tx.send(get_touch_event(touch_x, touch_y, false, Some(info.clone())));
                                 }
                                 evdev::AbsoluteAxisCode::ABS_Y => {
                                     touch_y = value as u16;
-                                    _ = tx.send(get_touch_event(touch_x, touch_y, false));
+                                    _ = tx.send(get_touch_event(touch_x, touch_y, false, Some(info.clone())));
                                 }
                                 _ => {}
                             },
@@ -167,7 +168,7 @@ fn spawn_device_listener(
     });
 }
 
-fn get_touch_event(x: u16, y: u16, released: bool) -> AppEvent {
+fn get_touch_event(x: u16, y: u16, released: bool, info: Option<DeviceInfo>) -> AppEvent {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -180,6 +181,7 @@ fn get_touch_event(x: u16, y: u16, released: bool) -> AppEvent {
             y: x,
             timestamp,
             released,
+            info,
         }
     } else {
         AppEvent::Touch {
@@ -187,6 +189,7 @@ fn get_touch_event(x: u16, y: u16, released: bool) -> AppEvent {
             y,
             timestamp,
             released,
+            info,
         }
     }
 }

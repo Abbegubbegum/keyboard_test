@@ -62,6 +62,7 @@ impl Decoder {
                     y,
                     timestamp,
                     released: !self.is_touching,
+                    info: None,
                 });
             }
             _ => {

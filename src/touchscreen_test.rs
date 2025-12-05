@@ -9,7 +9,10 @@ use ratatui::{
 use std::collections::VecDeque;
 use std::u16;
 
-use crate::{Nav, Screen, ScreenId, event_handler::AppEvent};
+use crate::{
+    Nav, Screen, ScreenId,
+    event_handler::{AppEvent, DeviceInfo},
+};
 
 // Conservative raw-unit thresholds; tweak to your device scale if needed:
 static MIN_SPAN_X: u16 = 100; // require at least this many raw units across X
@@ -100,6 +103,7 @@ impl AsciiCanvas {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CalibrationStep {
+    DeviceSelection,
     TopLeft,
     TopRight,
     BottomRight,
@@ -132,12 +136,20 @@ struct Calibration {
     touch_start_pos: Option<(u16, u16)>,
     hold_duration_ms: u128,
     touch_samples: Vec<(u16, u16)>, // Collect samples during hold
+
+    // Device selection
+    available_devices: Vec<DeviceInfo>,
+    selected_device_index: usize,
+    selected_device_path: Option<String>,
+
+    // Track maximum coordinates seen for adaptive tolerance
+    max_observed_coord: u16,
 }
 
 impl Calibration {
     fn new() -> Self {
         Self {
-            step: CalibrationStep::TopLeft,
+            step: CalibrationStep::DeviceSelection,
             pts: [(0, 0); 4],
             count: 0,
             min_x: 0,
@@ -154,6 +166,10 @@ impl Calibration {
             touch_start_pos: None,
             hold_duration_ms: 0,
             touch_samples: Vec::new(),
+            available_devices: Vec::new(),
+            selected_device_index: 0,
+            selected_device_path: None,
+            max_observed_coord: 0,
         }
     }
 
@@ -163,6 +179,7 @@ impl Calibration {
             y,
             timestamp: _,
             released,
+            info: _,
         } = touch_event
         {
             if let CalibrationStep::Done = self.step {
@@ -170,11 +187,15 @@ impl Calibration {
             }
 
             const REQUIRED_HOLD_MS: u128 = 1000; // 1 second
-            const MAX_MOVEMENT: u16 = 20; // Max movement in raw units before reset
+            const MOVEMENT_TOLERANCE_PERCENT: f32 = 0.025; // 2.5% of max observed coordinate
+            const MIN_TOLERANCE: u16 = 100; // Minimum tolerance for low-res or first touches
 
             if !released {
                 // Touch started or continuing
                 self.is_touching = true;
+
+                // Update max observed coordinate
+                self.max_observed_coord = self.max_observed_coord.max(*x).max(*y);
 
                 if self.touch_start_time.is_none() {
                     // First touch - record start time and position using system time
@@ -193,7 +214,17 @@ impl Calibration {
                         let dx = (*x as i32 - start_x as i32).abs();
                         let dy = (*y as i32 - start_y as i32).abs();
 
-                        if dx > MAX_MOVEMENT as i32 || dy > MAX_MOVEMENT as i32 {
+                        // Calculate adaptive threshold based on the maximum coordinate observed across all touches
+                        // This works for both low-res (1000x1000) and high-res (8500x5412) touchpads
+                        // Use the max observed coordinate across the entire calibration, not just current touch
+                        let max_movement = if self.max_observed_coord > 500 {
+                            ((self.max_observed_coord as f32) * MOVEMENT_TOLERANCE_PERCENT)
+                                .max(MIN_TOLERANCE as f32) as i32
+                        } else {
+                            MIN_TOLERANCE as i32 // Use minimum tolerance if we haven't seen large coordinates yet
+                        };
+
+                        if dx > max_movement || dy > max_movement {
                             // Moved too much - reset the timer
                             let current_time = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -231,6 +262,7 @@ impl Calibration {
                     self.pts[self.count] = (avg_x, avg_y);
                     self.count += 1;
                     self.step = match self.step {
+                        CalibrationStep::DeviceSelection => CalibrationStep::DeviceSelection, // Should not get touches during device selection
                         CalibrationStep::TopLeft => CalibrationStep::TopRight,
                         CalibrationStep::TopRight => CalibrationStep::BottomRight,
                         CalibrationStep::BottomRight => CalibrationStep::BottomLeft,
@@ -474,8 +506,35 @@ impl TouchscreenTestScreen {
             y,
             timestamp,
             released,
+            ref info,
         } = touch_event
         {
+            // During device selection, collect device info from touch events
+            if self.calibration.step == CalibrationStep::DeviceSelection {
+                if let Some(device_info) = info {
+                    // Check if this device is already in the list
+                    if !self
+                        .calibration
+                        .available_devices
+                        .iter()
+                        .any(|d| d.path == device_info.path)
+                    {
+                        self.calibration.available_devices.push(device_info.clone());
+                    }
+                }
+                return;
+            }
+
+            // After device selection, filter by selected device
+            if let Some(selected_path) = &self.calibration.selected_device_path {
+                if let Some(device_info) = info {
+                    if &device_info.path != selected_path {
+                        // Ignore touches from other devices
+                        return;
+                    }
+                }
+            }
+
             if self.calibration.is_done() {
                 let (mx, my) = self.map_raw(x, y);
 
@@ -536,12 +595,113 @@ impl TouchscreenTestScreen {
                     y,
                     timestamp,
                     released,
+                    info: info.clone(),
                 });
             } else {
                 self.calibration.record_touch(&touch_event);
                 self.last_touch = Some(touch_event);
             }
         }
+    }
+
+    fn draw_device_selection(&self, f: &mut Frame) {
+        let area = f.area();
+
+        let mut info_lines = vec![
+            Line::from(vec![Span::styled(
+                "Touchscreen Device Selection",
+                Style::default().bold().cyan(),
+            )])
+            .centered(),
+            Line::from(""),
+            Line::from("Select which touchscreen/touchpad device to use:")
+                .centered()
+                .yellow(),
+            Line::from(""),
+        ];
+
+        // Display the list of available devices
+        if self.calibration.available_devices.is_empty() {
+            info_lines.push(
+                Line::from(vec![Span::styled(
+                    "No touch devices detected from touch events.",
+                    Style::default().red(),
+                )])
+                .centered(),
+            );
+            info_lines.push(Line::from(""));
+            info_lines.push(
+                Line::from("Try touching the screen to detect devices...")
+                    .centered()
+                    .gray(),
+            );
+        } else {
+            for (idx, device) in self.calibration.available_devices.iter().enumerate() {
+                let is_selected = idx == self.calibration.selected_device_index;
+                let marker = if is_selected { "► " } else { "  " };
+
+                let line = Line::from(vec![
+                    Span::styled(marker, Style::default().yellow().bold()),
+                    Span::styled(
+                        format!("{}. {}", idx + 1, device.name),
+                        if is_selected {
+                            Style::default().bold().yellow()
+                        } else {
+                            Style::default().white()
+                        },
+                    ),
+                ]);
+
+                info_lines.push(line.centered());
+            }
+        }
+
+        info_lines.push(Line::from(""));
+        info_lines.push(Line::from(""));
+
+        if !self.calibration.available_devices.is_empty() {
+            info_lines.push(
+                Line::from(vec![
+                    Span::styled("↑/↓", Style::default().bold().yellow()),
+                    Span::raw(" to navigate   "),
+                    Span::styled("Enter", Style::default().bold().yellow()),
+                    Span::raw(" to select   "),
+                ])
+                .centered(),
+            );
+            info_lines.push(
+                Line::from(vec![
+                    Span::styled("1-9", Style::default().bold().yellow()),
+                    Span::raw(" for quick select"),
+                ])
+                .centered(),
+            );
+            info_lines.push(Line::from(""));
+        }
+
+        info_lines.push(
+            Line::from(vec![
+                Span::styled("Q/Esc", Style::default().bold().yellow()),
+                Span::raw(" to exit"),
+            ])
+            .centered(),
+        );
+
+        let info_height = info_lines.len() as u16 + 2;
+        let info_width = 60u16.min(area.width - 4);
+
+        let info_rect = Rect {
+            x: (area.width.saturating_sub(info_width)) / 2,
+            y: (area.height.saturating_sub(info_height)) / 2,
+            width: info_width,
+            height: info_height,
+        };
+
+        let info_widget = Paragraph::new(info_lines)
+            .block(Block::bordered())
+            .style(Style::default().bg(Color::Black).fg(Color::White));
+
+        f.render_widget(info_widget, info_rect);
     }
 
     fn draw_calibration(&self, f: &mut Frame) {
@@ -552,9 +712,16 @@ impl TouchscreenTestScreen {
         let h = area.height;
         let mut ac = AsciiCanvas::new(w, h);
 
-        // Determine which corner to highlight
+        // Handle device selection separately
         use CalibrationStep::*;
+        if self.calibration.step == DeviceSelection {
+            self.draw_device_selection(f);
+            return;
+        }
+
+        // Determine which corner to highlight
         let (target_x, target_y) = match self.calibration.step {
+            DeviceSelection => return, // Already handled above
             TopLeft => (0i32, 0i32),
             TopRight => ((w - 1) as i32, 0i32),
             BottomRight => ((w - 1) as i32, (h - 1) as i32),
@@ -588,6 +755,7 @@ impl TouchscreenTestScreen {
 
         // Overlay instruction box at top center
         let msg = match self.calibration.step {
+            DeviceSelection => "Select a device", // Should not reach here
             Done => "Calibration complete!",
             TopLeft => "Touch the TOP-LEFT corner of your screen",
             TopRight => "Touch the TOP-RIGHT corner of your screen",
@@ -613,9 +781,10 @@ impl TouchscreenTestScreen {
         if hold_complete {
             // Timer complete - show "Release" message
             info_lines.push(
-                Line::from(vec![
-                    Span::styled(">>> RELEASE NOW <<<", Style::default().bold().green()),
-                ])
+                Line::from(vec![Span::styled(
+                    ">>> RELEASE NOW <<<",
+                    Style::default().bold().green(),
+                )])
                 .centered(),
             );
             info_lines.push(Line::from(""));
@@ -667,6 +836,16 @@ impl TouchscreenTestScreen {
                 .gray(),
         );
 
+        if let Some(AppEvent::Touch { x, y, .. }) = &self.last_touch {
+            info_lines.push(
+                Line::from(vec![
+                    Span::raw("Touch: "),
+                    Span::styled(format!("({}, {})", x, y), Style::default().yellow()),
+                ])
+                .centered(),
+            );
+        }
+
         // Show error if present
         if let Some(err) = &self.calibration.error {
             info_lines.push(Line::from(""));
@@ -677,19 +856,6 @@ impl TouchscreenTestScreen {
                 ])
                 .centered(),
             );
-        }
-
-        // Show touch coordinates if there's an error
-        if self.calibration.error.is_some() {
-            if let Some(AppEvent::Touch { x, y, .. }) = &self.last_touch {
-                info_lines.push(
-                    Line::from(vec![
-                        Span::raw("Touch: "),
-                        Span::styled(format!("({}, {})", x, y), Style::default().yellow()),
-                    ])
-                    .centered(),
-                );
-            }
         }
 
         info_lines.push(Line::from(""));
@@ -903,6 +1069,67 @@ impl Screen for TouchscreenTestScreen {
             AppEvent::Key { code, .. } => {
                 if code == KeyCode::KEY_Q || code == KeyCode::KEY_ESC {
                     return Nav::To(ScreenId::Home);
+                }
+
+                // Handle device selection screen
+                if self.calibration.step == CalibrationStep::DeviceSelection {
+                    match code {
+                        KeyCode::KEY_UP => {
+                            if !self.calibration.available_devices.is_empty() {
+                                self.calibration.selected_device_index =
+                                    (self.calibration.selected_device_index
+                                        + self.calibration.available_devices.len()
+                                        - 1)
+                                        % self.calibration.available_devices.len();
+                            }
+                        }
+                        KeyCode::KEY_DOWN => {
+                            if !self.calibration.available_devices.is_empty() {
+                                self.calibration.selected_device_index =
+                                    (self.calibration.selected_device_index + 1)
+                                        % self.calibration.available_devices.len();
+                            }
+                        }
+                        KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => {
+                            if !self.calibration.available_devices.is_empty() {
+                                // Select the device and move to calibration
+                                let selected = &self.calibration.available_devices
+                                    [self.calibration.selected_device_index];
+                                self.calibration.selected_device_path = Some(selected.path.clone());
+                                self.calibration.step = CalibrationStep::TopLeft;
+                            }
+                        }
+                        KeyCode::KEY_1
+                        | KeyCode::KEY_2
+                        | KeyCode::KEY_3
+                        | KeyCode::KEY_4
+                        | KeyCode::KEY_5
+                        | KeyCode::KEY_6
+                        | KeyCode::KEY_7
+                        | KeyCode::KEY_8
+                        | KeyCode::KEY_9 => {
+                            // Quick select by number
+                            let idx = match code {
+                                KeyCode::KEY_1 => 0,
+                                KeyCode::KEY_2 => 1,
+                                KeyCode::KEY_3 => 2,
+                                KeyCode::KEY_4 => 3,
+                                KeyCode::KEY_5 => 4,
+                                KeyCode::KEY_6 => 5,
+                                KeyCode::KEY_7 => 6,
+                                KeyCode::KEY_8 => 7,
+                                KeyCode::KEY_9 => 8,
+                                _ => return Nav::Stay,
+                            };
+                            if idx < self.calibration.available_devices.len() {
+                                self.calibration.selected_device_index = idx;
+                                let selected = &self.calibration.available_devices[idx];
+                                self.calibration.selected_device_path = Some(selected.path.clone());
+                                self.calibration.step = CalibrationStep::TopLeft;
+                            }
+                        }
+                        _ => {}
+                    }
                 } else if code == KeyCode::KEY_R && self.calibration.is_done() {
                     // Reset statistics
                     self.statistics.reset();
