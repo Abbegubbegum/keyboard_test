@@ -235,8 +235,9 @@ impl KeyboardTestScreen {
             .spacing(2)
             .split(vertical_chunks[1]);
 
-        self.draw_key_grid(frame, horizontal_chunks[0], self.keyboard_layout[1][0]);
-        self.draw_key_grid(frame, horizontal_chunks[1], self.keyboard_layout[1][1]);
+        for (i, layout) in self.keyboard_layout[1].iter().enumerate() {
+            self.draw_key_grid(frame, horizontal_chunks[i], layout);
+        }
     }
 
     fn draw_key_grid(&self, frame: &mut Frame, area: Rect, keys: &[&[(&str, &[KeyCode])]]) {

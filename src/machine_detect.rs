@@ -10,21 +10,31 @@ pub enum ComputerModel {
     DatorBBFältGPS,
     DatorBärbarRS11,
     DatorBärbarCMBRF8,
+    DatorBBFältG2,
     EjKänd,
 }
 
-pub fn has_touchscreen(c: ComputerModel) -> bool {
-    match c {
+pub fn has_touchscreen() -> bool {
+    match get_computer_model() {
         ComputerModel::DatorBBFält => true,
         ComputerModel::DatorBBFältGPS => true,
+        ComputerModel::DatorBBFältG2 => true,
         _ => false,
     }
 }
 
-pub fn has_serial_touchscreen(c: ComputerModel) -> bool {
-    match c {
+pub fn has_serial_touchscreen() -> bool {
+    match get_computer_model() {
         ComputerModel::DatorBBFält => true,
         _ => false,
+    }
+}
+
+pub fn has_mouse() -> bool {
+    match get_computer_model() {
+        ComputerModel::DatorBBFältGPS => false,
+        ComputerModel::DatorBBFältG2 => false,
+        _ => true,
     }
 }
 
@@ -74,6 +84,7 @@ fn read_computer_model() -> ComputerModel {
         match product_name.as_str() {
             "DT10" => model = ComputerModel::DatorBBFältGPS,
             "RS11" => model = ComputerModel::DatorBärbarRS11,
+            "FZG2-1" => model = ComputerModel::DatorBBFältG2,
             _ => {}
         }
     }

@@ -1,7 +1,4 @@
-use crate::{
-    event_handler::AppEvent,
-    machine_detect::{get_computer_model, has_serial_touchscreen},
-};
+use crate::{event_handler::AppEvent, machine_detect::has_serial_touchscreen};
 
 use std::{thread, time::Duration};
 
@@ -76,7 +73,7 @@ impl Decoder {
 }
 
 pub fn spawn_reader(tx: Sender<AppEvent>) -> Result<std::thread::JoinHandle<()>> {
-    if !has_serial_touchscreen(get_computer_model()) {
+    if !has_serial_touchscreen() {
         return Err(eyre!(
             "serial touch reader can only be spawned on DatorBärbarFält model"
         ));

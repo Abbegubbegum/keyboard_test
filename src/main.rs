@@ -21,7 +21,7 @@ use ratatui::{
 use crate::{
     event_handler::AppEvent,
     keyboard_test::KeyboardTestScreen,
-    machine_detect::{get_computer_model, has_touchscreen},
+    machine_detect::{has_mouse, has_touchscreen},
     mouse_test::MouseTestScreen,
     touchscreen_test::TouchscreenTestScreen,
 };
@@ -58,9 +58,12 @@ impl HomeScreen {
     fn new() -> Self {
         let mut menu = Vec::new();
         menu.push(("Keyboard Test", ScreenId::KeyboardTest));
-        menu.push(("Mouse Test", ScreenId::MouseTest));
 
-        if has_touchscreen(get_computer_model()) {
+        if has_mouse() {
+            menu.push(("Mouse Test", ScreenId::MouseTest));
+        }
+
+        if has_touchscreen() {
             menu.push(("Touchscreen Test", ScreenId::TouchscreenTest));
         }
 
